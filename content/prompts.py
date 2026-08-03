@@ -41,6 +41,21 @@ CONTENT_TYPES = {
         weight=2,
         emoji="\U0001f319",
     ),
+    "poll": ContentType(
+        key="poll",
+        label="Опрос",
+        weight=3,
+        emoji="\U0001f4ca",
+    ),
+}
+
+RUBRIC_TAGS = {
+    "micro_protocol": "\u2699\ufe0f ПРОТОКОЛ",
+    "myth_buster": "\u274c МИФ",
+    "research_digest": "\U0001f52c ФАКТ",
+    "morning_routine": "\u2600\ufe0f ПРОТОКОЛ",
+    "evening_reflection": "\U0001f319 СОВЕТ",
+    "poll": "\U0001f4ca ОПРОС",
 }
 
 SYSTEM_PROMPT = """Ты — контент-редактор Telegram-канала SpectrMind о нейронауке и нейропсихологии.
@@ -55,7 +70,8 @@ SYSTEM_PROMPT = """Ты — контент-редактор Telegram-канал�
 - Используй эмодзи умеренно (2-4 на пост)
 - Пост должен быть 200-400 слов
 - Структура: заголовок → основной текст → вывод/призыв → хештеги
-- В конце: 3-5 хештегов из этого набора: #нейронаука #мозг #продуктивность #нейропсихология #фокус #сон #дофамин #нейропластичность #саморазвитие #энергия"""
+- В конце: 3-5 хештегов из этого набора: #нейронаука #мозг #продуктивность #нейропсихология #фокус #сон #дофамин #нейропластичность #саморазвитие #энергия
+- Начинай пост с тега-рубрики на отдельной строке (например "ПРОТОКОЛ" или "МИФ")"""
 
 PROMPTS = {
     "micro_protocol": """Напиши пост-микро-протокол для Telegram-канала SpectrMind.
@@ -166,6 +182,26 @@ PROMPTS = {
 [Призыв: попробуй сегодня вечером]
 
 #хештеги""",
+
+    "poll": """Напиши пост-опрос для Telegram-канала SpectrMind.
+
+Тема: нейронаука, привычки, продуктивность, сон, дофамин.
+Опрос должен быть интерактивным и вовлекающим.
+
+Формат поста:
+[Эмодзи] Вопрос-заголовок (короткий, цепляющий)
+
+[Контекст: 2-3 предложения, почему это важно]
+
+Варианты ответа (4 штуки, каждый с новой строки, без нумерации):
+Вариант 1
+Вариант 2
+Вариант 3
+Вариант 4
+
+[Призыв: голосуй / напиши свой вариант в комментариях]
+
+#хештеги""",
 }
 
 
@@ -186,3 +222,28 @@ def get_emoji(content_type: str) -> str:
     """Get the emoji prefix for a content type."""
     ct = CONTENT_TYPES.get(content_type)
     return ct.emoji if ct else "\U0001f9e0"
+
+
+def get_rubric_tag(content_type: str) -> str:
+    """Get the rubric tag for a content type."""
+    return RUBRIC_TAGS.get(content_type, "")
+
+
+# Morning slot types (protocol-first strategy: practice > facts)
+MORNING_TYPES = ["micro_protocol", "morning_routine"]
+# Midday and evening types (full rotation including facts, myths, polls)
+DAY_EVENING_TYPES = ["micro_protocol", "myth_buster", "research_digest", "evening_reflection", "poll"]
+
+
+def get_content_type_for_slot(hour: int) -> str:
+    """Pick a content type based on the time slot.
+
+    Morning (before 10): always protocol (micro_protocol or morning_routine)
+    Day/Evening: weighted random from all types
+    """
+    if hour < 10:
+        return random.choice(MORNING_TYPES)
+    types = [CONTENT_TYPES[t] for t in DAY_EVENING_TYPES if t in CONTENT_TYPES]
+    weights = [t.weight for t in types]
+    chosen = random.choices(types, weights=weights, k=1)[0]
+    return chosen.key

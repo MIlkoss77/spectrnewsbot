@@ -14,7 +14,7 @@ CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
 
-POST_TIMES_RAW = os.getenv("POST_TIMES", "08:30,13:00,20:00")
+POST_TIMES_RAW = os.getenv("POST_TIMES", "08:00,13:00,19:30")
 POST_TIMES = [t.strip() for t in POST_TIMES_RAW.split(",")]
 
 # Proxy for Telegram API (aiohttp doesn't use system proxy settings)

@@ -36,8 +36,10 @@ async def main() -> None:
 
     # Post one test message on startup so the user can verify it works
     try:
-        from content.generator import generate_content
-        ctype, text = await generate_content()
+        from datetime import datetime, timezone, timedelta
+        from content.generator import generate_for_slot
+        now = datetime.now(timezone(timedelta(hours=3)))
+        ctype, text = await generate_for_slot(now.hour)
         await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=None)
         logger.info("Startup post sent [%s]", ctype)
     except Exception:
