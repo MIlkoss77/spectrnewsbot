@@ -10,6 +10,7 @@ from content.prompts import (
     SYSTEM_PROMPT, get_prompt, get_random_content_type,
     get_content_type_for_slot, get_rubric_tag, CONTENT_TYPES,
 )
+from content.history import get_recent_topics, add_topic, extract_topic
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,19 @@ async def generate_content(content_type: Optional[str] = None) -> Tuple[str, str
     if content_type is None:
         content_type = get_random_content_type()
 
-    prompt = get_prompt(content_type)
+    base_prompt = get_prompt(content_type)
+
+    # Build avoid-list from recent posts
+    recent = get_recent_topics()
+    if recent:
+        avoid_block = "\n\nВАЖНО: НЕ пиши на эти темы (они уже были недавно):\n"
+        for i, t in enumerate(recent, 1):
+            avoid_block += f"{i}. {t}\n"
+        avoid_block += "\nВыбери НОВУЮ тему, которой не было в списке. Будь креативным."
+        prompt = base_prompt + avoid_block
+    else:
+        prompt = base_prompt
+
     models = [OPENROUTER_MODEL] + FALLBACK_MODELS
 
     for model in models:
@@ -108,6 +121,9 @@ async def generate_content(content_type: Optional[str] = None) -> Tuple[str, str
         if result:
             logger.info("Success with %s", model)
             result = _add_rubric_tag(result, content_type)
+            # Save topic to history
+            topic = extract_topic(result)
+            add_topic(topic)
             return content_type, result
         logger.info("Failed with %s, trying next", model)
 
