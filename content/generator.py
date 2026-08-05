@@ -10,7 +10,7 @@ from content.prompts import (
     SYSTEM_PROMPT, get_prompt, get_random_content_type,
     get_content_type_for_slot, get_rubric_tag, CONTENT_TYPES,
 )
-from content.history import get_recent_topics, add_topic, extract_topic
+from content.topic_pool import get_next_topic
 
 logger = logging.getLogger(__name__)
 
@@ -94,36 +94,27 @@ async def _call_openrouter(model: str, user_prompt: str) -> Optional[str]:
 async def generate_content(content_type: Optional[str] = None) -> Tuple[str, str]:
     """Generate a post. Returns (content_type, post_text).
 
+    Uses topic pool for explicit topic assignment (no repeats).
     Tries the primary model first, then falls back through FALLBACK_MODELS.
     Raises RuntimeError if all models fail.
     """
     if content_type is None:
         content_type = get_random_content_type()
 
-    base_prompt = get_prompt(content_type)
+    # Get specific topic from pool (round-robin, no repeats)
+    topic = get_next_topic(content_type)
 
-    # Build avoid-list from recent posts
-    recent = get_recent_topics()
-    if recent:
-        avoid_block = "\n\nВАЖНО: НЕ пиши на эти темы (они уже были недавно):\n"
-        for i, t in enumerate(recent, 1):
-            avoid_block += f"{i}. {t}\n"
-        avoid_block += "\nВыбери НОВУЮ тему, которой не было в списке. Будь креативным."
-        prompt = base_prompt + avoid_block
-    else:
-        prompt = base_prompt
+    base_prompt = get_prompt(content_type)
+    prompt = base_prompt + f"\n\nТема для этого поста: {topic}\nПиши ТОЛЬКО на эту тему."
 
     models = [OPENROUTER_MODEL] + FALLBACK_MODELS
 
     for model in models:
-        logger.info("Trying model %s for type %s", model, content_type)
+        logger.info("Trying model %s for type %s, topic: %s", model, content_type, topic[:40])
         result = await _call_openrouter(model, prompt)
         if result:
             logger.info("Success with %s", model)
             result = _add_rubric_tag(result, content_type)
-            # Save topic to history
-            topic = extract_topic(result)
-            add_topic(topic)
             return content_type, result
         logger.info("Failed with %s, trying next", model)
 
