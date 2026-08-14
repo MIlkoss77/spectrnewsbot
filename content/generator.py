@@ -105,7 +105,7 @@ async def generate_content(content_type: Optional[str] = None) -> Tuple[str, str
     topic = get_next_topic(content_type)
 
     base_prompt = get_prompt(content_type)
-    prompt = base_prompt + f"\n\nТема для этого поста: {topic}\nПиши ТОЛЬКО на эту тему."
+    prompt = f"ТЕМА ПОСТА: {topic}\n\n{base_prompt}\n\nПиши СТРОГО про указанную тему выше."
 
     models = [OPENROUTER_MODEL] + FALLBACK_MODELS
 
