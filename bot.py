@@ -5,7 +5,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from config import BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL
+from config import BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES
 from handlers import router
 from scheduler import setup_scheduler
 
@@ -33,6 +33,8 @@ async def main() -> None:
 
     setup_scheduler(bot)
     logger.info("Bot started. Channel: %s, schedule: %s", CHANNEL_ID, POST_TIMES)
+    if PREMIUM_CHANNEL_ID:
+        logger.info("Premium channel: %s, schedule: %s", PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES)
 
     # Post one test message on startup so the user can verify it works
     try:

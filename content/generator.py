@@ -7,10 +7,12 @@ import httpx
 
 from config import OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL, FALLBACK_MODELS, PROXY_URL
 from content.prompts import (
-    SYSTEM_PROMPT, get_prompt, get_random_content_type,
+    SYSTEM_PROMPT, PREMIUM_SYSTEM_PROMPT, get_prompt, get_random_content_type,
     get_content_type_for_slot, get_rubric_tag, CONTENT_TYPES,
+    get_premium_content_type, get_premium_prompt, get_premium_rubric_tag,
+    PREMIUM_CONTENT_TYPES,
 )
-from content.topic_pool import get_next_topic
+from content.topic_pool import get_next_topic, get_next_premium_topic
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +120,7 @@ def _add_rubric_tag(text: str, content_type: str) -> str:
     return f"{tag}\n\n{text}"
 
 
-async def _call_openrouter(model: str, user_prompt: str) -> Optional[str]:
+async def _call_openrouter(model: str, user_prompt: str, system_prompt: str = None, max_tokens: int = 1600) -> Optional[str]:
     """Call OpenRouter API and return generated text or None on failure."""
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -129,11 +131,11 @@ async def _call_openrouter(model: str, user_prompt: str) -> Optional[str]:
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.8,
-        "max_tokens": 1600,
+        "max_tokens": max_tokens,
     }
 
     async with httpx.AsyncClient(timeout=TIMEOUT, proxy=PROXY_URL or None) as client:
@@ -226,3 +228,63 @@ async def generate_for_slot(hour: int) -> Tuple[str, str]:
 def add_cta(text: str) -> str:
     """Append CTA link to spectrmind.ru."""
     return text + CTA_TEXT
+
+
+async def generate_premium_content(content_type: Optional[str] = None) -> Tuple[str, str]:
+    """Generate a premium post. Returns (content_type, post_text).
+
+    Uses premium topic pool, premium prompts, and higher token limits.
+    """
+    if content_type is None:
+        content_type = get_premium_content_type()
+
+    topic = get_next_premium_topic(content_type)
+
+    base_prompt = get_premium_prompt(content_type)
+    prompt = f"ТЕМА ПОСТА: {topic}\n\n{base_prompt}\n\nПиши СТРОГО про указанную тему выше."
+
+    models = [OPENROUTER_MODEL] + FALLBACK_MODELS
+
+    for model in models:
+        for attempt in range(MAX_GENERATION_RETRIES + 1):
+            logger.info("Trying model %s for premium type %s, topic: %s (attempt %d)",
+                        model, content_type, topic[:40], attempt + 1)
+            result = await _call_openrouter(model, prompt, system_prompt=PREMIUM_SYSTEM_PROMPT, max_tokens=2500)
+            if not result:
+                logger.info("Failed with %s (API error), trying next model", model)
+                break
+
+            if _is_complete(result):
+                logger.info("Success with %s (complete)", model)
+                tag = get_premium_rubric_tag(content_type)
+                if tag:
+                    first_line = result.split("\n", 1)[0].strip().upper()
+                    if tag.split()[-1] not in first_line:
+                        result = f"{tag}\n\n{result}"
+                return content_type, result
+
+            logger.warning("Incomplete text from %s (attempt %d), retrying",
+                           model, attempt + 1)
+
+        logger.info("All attempts exhausted for %s, trying next model", model)
+
+    logger.warning("All models produced incomplete text, using trimmed result")
+    for model in models:
+        result = await _call_openrouter(model, prompt, system_prompt=PREMIUM_SYSTEM_PROMPT, max_tokens=2500)
+        if result:
+            result = _trim_incomplete_tail(result)
+            if len(result.split()) >= 100:
+                tag = get_premium_rubric_tag(content_type)
+                if tag:
+                    first_line = result.split("\n", 1)[0].strip().upper()
+                    if tag.split()[-1] not in first_line:
+                        result = f"{tag}\n\n{result}"
+                return content_type, result
+
+    raise RuntimeError("All models failed to generate premium content")
+
+
+async def generate_for_premium_slot(hour: int) -> Tuple[str, str]:
+    """Generate premium content for the given hour."""
+    content_type = get_premium_content_type()
+    return await generate_premium_content(content_type)
