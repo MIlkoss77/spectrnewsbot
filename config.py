@@ -27,8 +27,8 @@ PREMIUM_POST_TIMES = [t.strip() for t in PREMIUM_POST_TIMES_RAW.split(",")]
 PROXY_URL = os.getenv("PROXY_URL", "")
 
 FALLBACK_MODELS = [
+    "deepseek/deepseek-v4-flash",
     "google/gemini-2.0-flash-001",
-    "deepseek/deepseek-chat",
 ]
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
