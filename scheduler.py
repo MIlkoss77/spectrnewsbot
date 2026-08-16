@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from config import POST_TIMES, CHANNEL_ID, PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES
+from config import POST_TIMES, CHANNEL_ID, ADMIN_ID, PREMIUM_POST_TIMES
 from content.generator import generate_for_slot, generate_for_premium_slot, add_cta
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def post_to_channel(bot) -> None:
 
 
 async def post_to_premium_channel(bot) -> None:
-    """Generate premium content and post it to the premium Telegram channel."""
+    """Generate premium content and send it to admin's DM."""
     now = datetime.now(MSK)
     hour = now.hour
     logger.info("Premium scheduled post triggered at %s MSK", now.strftime("%H:%M"))
@@ -83,10 +83,10 @@ async def post_to_premium_channel(bot) -> None:
         counter = _read_premium_counter() + 1
         _write_premium_counter(counter)
 
-        await bot.send_message(chat_id=PREMIUM_CHANNEL_ID, text=text, parse_mode=None)
-        logger.info("Posted [%s] to premium channel successfully (post #%d)", content_type, counter)
+        await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode=None)
+        logger.info("Sent [%s] to admin DM successfully (post #%d)", content_type, counter)
     except Exception:
-        logger.exception("Failed to post to premium channel")
+        logger.exception("Failed to send premium post to admin DM")
 
 
 def setup_scheduler(bot) -> AsyncIOScheduler:
@@ -108,8 +108,8 @@ def setup_scheduler(bot) -> AsyncIOScheduler:
         )
         logger.info("Scheduled free channel post at %s MSK", time_str)
 
-    # Premium channel jobs (only if configured)
-    if PREMIUM_CHANNEL_ID:
+    # Premium posts to admin DM (if ADMIN_ID configured)
+    if ADMIN_ID:
         for time_str in PREMIUM_POST_TIMES:
             parts = time_str.split(":")
             hour, minute = int(parts[0]), int(parts[1])
@@ -122,9 +122,9 @@ def setup_scheduler(bot) -> AsyncIOScheduler:
                 name=f"Premium post at {time_str} MSK",
                 replace_existing=True,
             )
-            logger.info("Scheduled premium channel post at %s MSK", time_str)
+            logger.info("Scheduled premium post (admin DM) at %s MSK", time_str)
 
-    total_jobs = len(POST_TIMES) + (len(PREMIUM_POST_TIMES) if PREMIUM_CHANNEL_ID else 0)
+    total_jobs = len(POST_TIMES) + (len(PREMIUM_POST_TIMES) if ADMIN_ID else 0)
     scheduler.start()
     logger.info("Scheduler started with %d jobs", total_jobs)
     return scheduler
