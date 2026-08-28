@@ -1,0 +1,132 @@
+from openai import AsyncOpenAI
+import config
+
+_client = None
+
+
+def get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(
+            api_key=config.OPENROUTER_API_KEY,
+            base_url=config.OPENROUTER_BASE_URL,
+            default_headers={
+                "HTTP-Referer": "https://spectrmind.ru",
+                "X-Title": "SpectrMind Bot",
+            },
+        )
+    return _client
+
+
+SYSTEM_PROMPT = """Ты — контент-мейкер Telegram-канала SpectrMind о нейронауке и когнитивной продуктивности.
+
+ТВОЯ ЗАДАЧА: писать посты для Telegram-канала, которые:
+- Основаны на реальных исследованиях (Stanford, MIT, Huberman Lab, PubMed)
+- Написаны простым языком, без медицинского жаргона
+- Полезны и применимы на практике сегодня
+- В «белой» рамке: когнитивная продуктивность, сон, энергия, фокус
+- НЕ содержат: рекомендации лекарств, инъекций, диагнозы, «пептиды», «биомаркеры»
+
+СТИЛЬ:
+- Telegram-формат: короткие абзацы, эмодзи умеренно, списки
+- Длина: 600-1200 символов (не перегружать)
+- Хук в первой строке (цифра, вопрос, провокация)
+- CTA в конце: «Подпишись на канал, чтобы не пропустить следующий пост»
+- На русском языке
+
+СТРУКТУРА ПОСТА:
+1. Хук (первая строка)
+2. Суть (2-3 абзаца с научным обоснованием)
+3. Практика (1-3 конкретных действия)
+4. CTA
+"""
+
+MICRO_PROTOCOL_PROMPT = """Напиши пост — МИКРО-ПРОТОКОЛ для утреннего Telegram-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Первые 2 строки — хук (цифра + обещание)
+- Тело: что делать пошагово (3-5 шагов, каждый с новой строки с эмодзи)
+- Почему работает: 1-2 предложения с ссылкой на исследование
+- CTA: «Сохрани пост и попробуй завтра утром 👇»
+
+Длина: 500-800 символов. Пиши энергично, конкретно, без воды.
+"""
+
+RESEARCH_PROMPT = """Напиши пост — РАЗБОР ИССЛЕДОВАНИЯ для вечернего Telegram-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: неожиданный факт или цифра из исследования
+- Контекст: что исследовали, где (Stanford, MIT, и т.д.)
+- Результат: что нашли, 2-3 ключевых вывода
+- Практика: как применить прямо сейчас (2-3 шага)
+- Источник: упомяни исследование/учёного (например, «исследование Huberman Lab, 2023»)
+- CTA: «Подпишись, чтобы получать разборы исследований каждый день»
+
+Длина: 700-1200 символов. Тон — уверенный, но не занудный.
+"""
+
+MYTH_PROMPT = """Напиши пост — РАЗБОР МИФА для Telegram-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: миф как утверждение (кавычки, провокация)
+- «Почему это миф»: научное объяснение (1-2 абзаца)
+- «Что работает на самом деле»: конкретная альтернатива
+- Источник: исследование, опровергающее миф
+- CTA: «Отправь другу, который верит в этот миф 😄»
+
+Длина: 600-1000 символов. Тон — дружелюбный, без снобизма.
+"""
+
+PROTOCOL_PROMPT = """Напиши пост — ПРОТОКОЛ ПРОДУКТИВНОСТИ для Telegram-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: проблема, которую решает протокол
+- Суть протокола: 1-2 предложения
+- Пошаговый алгоритм (3-6 шагов, нумерованный список)
+- Когда применять: конкретные ситуации
+- Научное обоснование: почему работает (1 предложение)
+- CTA: «Сохрани и попробуй на следующей неделе»
+
+Длина: 600-1000 символов. Чётко, без лишних слов.
+"""
+
+PROMPT_MAP = {
+    "micro_protocol": MICRO_PROTOCOL_PROMPT,
+    "research": RESEARCH_PROMPT,
+    "myth": MYTH_PROMPT,
+    "protocol": PROTOCOL_PROMPT,
+}
+
+
+async def generate_post(category: str, title: str, description: str) -> str:
+    prompt_template = PROMPT_MAP.get(category, RESEARCH_PROMPT)
+    user_prompt = prompt_template.format(title=title, description=description)
+
+    response = await get_client().chat.completions.create(
+        model=config.MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=800,
+        temperature=0.8,
+    )
+
+    return response.choices[0].message.content.strip()
+
+
+async def generate_post_preview(category: str, title: str, description: str) -> str:
+    """Генерирует превью поста для ручной проверки перед публикацией."""
+    return await generate_post(category, title, description)
