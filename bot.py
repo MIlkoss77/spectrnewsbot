@@ -208,6 +208,42 @@ async def cmd_now(message: Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@router.message(Command("generate_premium"))
+async def cmd_generate_premium(message: Message):
+    """Генерация премиум-поста (превью, без публикации)."""
+    if not config.is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    parts = message.text.split(maxsplit=1)
+    category = parts[1] if len(parts) > 1 else "deep_analysis"
+
+    valid = ["deep_analysis", "protocol_plus", "weekly_digest"]
+    if category not in valid:
+        await message.answer(f"❌ Неверная категория. Доступные: {', '.join(valid)}")
+        return
+
+    import random
+    topics = [t for t in PREMIUM_TOPICS if t[0] == category]
+    topic = random.choice(topics)
+
+    await message.answer("⏳ Генерирую премиум-пост...")
+    try:
+        content = await content_generator.generate_premium_post(
+            category=topic[0],
+            title=topic[1],
+            description=topic[2],
+        )
+        await message.answer(
+            f"💎 <b>Превью премиум-поста:</b>\n"
+            f"Категория: {category}\n"
+            f"Тема: {topic[1]}\n\n"
+            f"{'─' * 30}\n\n{content}"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка генерации: {e}")
+
+
 PREMIUM_TOPICS = [
     ("deep_analysis", "Нейропластичность и обучение взрослых", "Детальный разбор механизмов нейропластичности после 25 лет"),
     ("deep_analysis", "Дофаминовая система: полный гайд", "Мезолимбический путь, рецепторы D1/D2, сенсибилизация"),
