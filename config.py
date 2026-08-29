@@ -18,7 +18,8 @@ EVENING_HOUR = int(os.getenv("EVENING_POST_HOUR", "19"))
 EVENING_MINUTE = int(os.getenv("EVENING_POST_MINUTE", "0"))
 
 PDF_PATH = os.getenv("PDF_PATH", "neuro_stack.pdf")
-ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+_admin_raw = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID") or ""
+ADMIN_IDS = [int(x) for x in _admin_raw.split(",") if x.strip()]
 
 PAID_CHANNEL_LINK = os.getenv("PAID_CHANNEL_LINK", "https://t.me/+xxxxx")
 PAID_CHANNEL_PRICE = os.getenv("PAID_CHANNEL_PRICE", "990₽")
