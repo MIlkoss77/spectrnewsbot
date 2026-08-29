@@ -201,7 +201,7 @@ async def add_subscriber(user_id: int, username: str = None, first_name: str = N
         await db.commit()
 
 
-async def get_active_subscribers() -> list[dict]:
+async def get_active_subscribers():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
