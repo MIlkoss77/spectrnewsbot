@@ -17,7 +17,7 @@ MORNING_MINUTE = int(os.getenv("MORNING_POST_MINUTE", "0"))
 EVENING_HOUR = int(os.getenv("EVENING_POST_HOUR", "19"))
 EVENING_MINUTE = int(os.getenv("EVENING_POST_MINUTE", "0"))
 
-PDF_PATH = os.getenv("PDF_PATH", "neuro_stack.pdf")
+PDF_PATH = os.getenv("PDF_PATH", "freeguide.pdf")
 _admin_raw = os.getenv("ADMIN_IDS") or os.getenv("ADMIN_ID") or ""
 ADMIN_IDS = [int(x) for x in _admin_raw.split(",") if x.strip()]
 
