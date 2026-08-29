@@ -211,6 +211,7 @@ async def cmd_now(message: Message):
 @router.message(Command("generate_premium"))
 async def cmd_generate_premium(message: Message):
     """Генерация премиум-поста (превью, без публикации)."""
+    logger.info(f"generate_premium: user_id={message.from_user.id}, ADMIN_IDS={config.ADMIN_IDS}")
     if not config.is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа.")
         return
