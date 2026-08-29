@@ -8,7 +8,7 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "SpectrMindBot")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@spectrmind_channel")
 CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/spectrmind_channel")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = os.getenv("MODEL", "google/gemma-4-31b-it:free")
+MODEL = os.getenv("MODEL", "google/gemma-4-31b-it")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Moscow")
 
