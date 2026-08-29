@@ -132,7 +132,7 @@ async def seed_topics():
         await db.commit()
 
 
-async def get_random_topic(category: str) -> dict | None:
+async def get_random_topic(category: str):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
