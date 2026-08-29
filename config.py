@@ -25,6 +25,9 @@ PAID_CHANNEL_PRICE = os.getenv("PAID_CHANNEL_PRICE", "990₽")
 NEUROGUIDE_LINK = os.getenv("NEUROGUIDE_LINK", "https://spectrmind.ru/neuroguide")
 NEUROGUIDE_PRICE = os.getenv("NEUROGUIDE_PRICE", "1990₽")
 
+PREMIUM_CHANNEL_ID = os.getenv("PREMIUM_CHANNEL_ID", "")
+PREMIUM_POST_TIMES = [t.strip() for t in os.getenv("PREMIUM_POST_TIMES", "10:00,15:00,21:00").split(",")]
+
 DB_PATH = "spectrmind.db"
 
 

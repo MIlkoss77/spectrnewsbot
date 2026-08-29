@@ -109,6 +109,83 @@ PROMPT_MAP = {
     "protocol": PROTOCOL_PROMPT,
 }
 
+# ---------- Премиум-промпты ----------
+
+PREMIUM_SYSTEM_PROMPT = """Ты — контент-мейкер ПРЕМИУМ Telegram-канала SpectrMind.
+
+Это ЗАКРЫТЫЙ канал за 990₽/мес. Контент должен быть ЗНАЧИТЕЛЬНО глубже бесплатного.
+
+ОТЛИЧИЯ ОТ БЕСПЛАТНОГО КАНАЛА:
+- Длина: 1500-3000 символов (в 2-3 раза длиннее)
+- Глубокий разбор: не только выводы, но и методология исследования
+- Конкретные дозировки, протоколы, тайминги
+- Ссылки на исследования (DOI, PubMed)
+- Эксклюзивные протоколы, которых нет в бесплатном канале
+- Тон: экспертный, но доступный
+
+СТИЛЬ:
+- Telegram-формат: короткие абзацы, эмодзи умеренно
+- Хук в первой строке
+- На русском языке
+"""
+
+DEEP_ANALYSIS_PROMPT = """Напиши ГЛУБОКИЙ РАЗБОР ИССЛЕДОВАНИЯ для премиум-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: неожиданный факт или цифра
+- Контекст: что исследовали, методология, выборка, дизайн исследования
+- Результаты: детальные выводы с цифрами и процентами
+- Механизм: как это работает на уровне нейробиологии
+- Практика: конкретный протокол с дозировками/таймингами
+- Источник: полная ссылка (DOI или PubMed)
+- CTA: «Сохрани пост — пригодится»
+
+Длина: 1500-2500 символов. Глубоко, но без занудства.
+"""
+
+PROTOCOL_PLUS_PROMPT = """Напиши РАСШИРЕННЫЙ ПРОТОКОЛ для премиум-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: проблема, которую решает протокол
+- Научное обоснование: 2-3 абзаца с механизмом действия
+- Пошаговый алгоритм (5-8 шагов, детальный)
+- Вариации: для новичков и продвинутых
+- Стакинг: с чем комбинировать для усиления эффекта
+- Ожидаемый результат: что почувствуешь через 1/7/30 дней
+- Источники: 2-3 исследования
+- CTA: «Попробуй на этой неделе и отпишись в комментариях»
+
+Длина: 2000-3000 символов. Максимум конкретики.
+"""
+
+WEEKLY_DIGEST_PROMPT = """Напиши ДАЙДЖЕСТ НЕДЕЛИ для премиум-канала SpectrMind.
+
+Тема: {title}
+Описание: {description}
+
+Формат:
+- Хук: «3 открытия этой недели, которые изменят твой подход к...»
+- 3-4 ключевых открытия/исследования недели
+- Для каждого: суть → механизм → как применить
+- Общий вывод: тренд или паттерн
+- Эксклюзивный совет: что попробовать на следующей неделе
+- CTA: «Поделись с другом, который следит за нейронаукой»
+
+Длина: 2000-3000 символов. Обзорный, но с глубиной.
+"""
+
+PREMIUM_PROMPT_MAP = {
+    "deep_analysis": DEEP_ANALYSIS_PROMPT,
+    "protocol_plus": PROTOCOL_PLUS_PROMPT,
+    "weekly_digest": WEEKLY_DIGEST_PROMPT,
+}
+
 
 async def generate_post(category: str, title: str, description: str) -> str:
     prompt_template = PROMPT_MAP.get(category, RESEARCH_PROMPT)
@@ -130,3 +207,20 @@ async def generate_post(category: str, title: str, description: str) -> str:
 async def generate_post_preview(category: str, title: str, description: str) -> str:
     """Генерирует превью поста для ручной проверки перед публикацией."""
     return await generate_post(category, title, description)
+
+
+async def generate_premium_post(category: str, title: str, description: str) -> str:
+    prompt_template = PREMIUM_PROMPT_MAP.get(category, DEEP_ANALYSIS_PROMPT)
+    user_prompt = prompt_template.format(title=title, description=description)
+
+    response = await get_client().chat.completions.create(
+        model=config.MODEL,
+        messages=[
+            {"role": "system", "content": PREMIUM_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=1500,
+        temperature=0.8,
+    )
+
+    return response.choices[0].message.content.strip()

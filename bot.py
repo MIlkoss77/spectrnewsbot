@@ -84,19 +84,23 @@ async def cmd_help(message: Message):
         "/start — получить бесплатный гайд «Нейро-Стек»\n"
         "/help — эта справка\n\n"
         "<b>Админ:</b>\n"
-        "/post [категория] — сгенерировать пост\n"
+        "/now [категория] — пост в бесплатный канал\n"
+        "/now_premium [тип] — пост в премиум канал\n"
         "/preview [категория] — превью поста\n"
-        "/now [категория] — опубликовать немедленно\n"
         "/broadcast <текст> — рассылка подписчикам\n"
         "/announce <текст> — анонс в канал + рассылка\n"
         "/stats — статистика постов\n"
         "/subscribers — количество подписчиков\n"
         "/schedule — текущее расписание\n\n"
-        "<b>Категории:</b>\n"
+        "<b>Бесплатный канал:</b>\n"
         "• micro_protocol — утренний микро-протокол\n"
         "• research — разбор исследования\n"
         "• myth — разбор мифа\n"
-        "• protocol — протокол продуктивности"
+        "• protocol — протокол продуктивности\n\n"
+        "<b>Премиум канал:</b>\n"
+        "• deep_analysis — глубокий разбор\n"
+        "• protocol_plus — расширенный протокол\n"
+        "• weekly_digest — дайджест недели"
     )
 
 
@@ -114,14 +118,18 @@ async def cmd_stats(message: Message):
 
 @router.message(Command("schedule"))
 async def cmd_schedule(message: Message):
-    await message.answer(
+    text = (
         "📅 <b>Расписание постов:</b>\n\n"
         f"🌅 <b>Каждый день {config.MORNING_HOUR:02d}:{config.MORNING_MINUTE:02d}</b> — микро-протокол\n"
         f"🌆 <b>Каждый день {config.EVENING_HOUR:02d}:{config.EVENING_MINUTE:02d}</b> — разбор исследования\n"
         "🕐 <b>Вт, Чт, Сб 13:00</b> — разбор мифа\n"
-        "🕐 <b>Пт, Вс 13:00</b> — протокол продуктивности\n\n"
-        f"Часовой пояс: {config.TIMEZONE}"
+        "🕐 <b>Пт, Вс 13:00</b> — протокол продуктивности\n"
     )
+    if config.PREMIUM_CHANNEL_ID:
+        times = ", ".join(config.PREMIUM_POST_TIMES)
+        text += f"\n💎 <b>Премиум канал:</b> {times} (МСК)\n"
+    text += f"\nЧасовой пояс: {config.TIMEZONE}"
+    await message.answer(text)
 
 
 @router.message(Command("preview"))
@@ -197,6 +205,64 @@ async def cmd_now(message: Message):
         )
     except Exception as e:
         logger.error(f"Ошибка публикации: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+PREMIUM_TOPICS = [
+    ("deep_analysis", "Нейропластичность и обучение взрослых", "Детальный разбор механизмов нейропластичности после 25 лет"),
+    ("deep_analysis", "Дофаминовая система: полный гайд", "Мезолимбический путь, рецепторы D1/D2, сенсибилизация"),
+    ("deep_analysis", "Сон и консолидация памяти", "Роль REM и глубокого сна в обучении, глимфатическая система"),
+    ("protocol_plus", "Протокол утренней продуктивности", "Полный стек: свет, движение, питание, работа — с таймингами"),
+    ("protocol_plus", "Протокол глубокого сна", "Температура, освещение, добавки, дыхание — полный протокол"),
+    ("protocol_plus", "Протокол фокуса на 4+ часа", "Блоки, питание, звук, среда — расширенная версия"),
+    ("weekly_digest", "Дайджест недели: 3 открытия", "Обзор ключевых исследований недели с практическими выводами"),
+]
+
+
+@router.message(Command("now_premium"))
+async def cmd_now_premium(message: Message):
+    """Немедленная публикация премиум-поста."""
+    if not config.is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа.")
+        return
+
+    if not config.PREMIUM_CHANNEL_ID:
+        await message.answer("❌ PREMIUM_CHANNEL_ID не настроен в .env")
+        return
+
+    parts = message.text.split(maxsplit=1)
+    category = parts[1] if len(parts) > 1 else "deep_analysis"
+
+    valid = ["deep_analysis", "protocol_plus", "weekly_digest"]
+    if category not in valid:
+        await message.answer(f"❌ Неверная категория. Доступные: {', '.join(valid)}")
+        return
+
+    import random
+    topic = random.choice([t for t in PREMIUM_TOPICS if t[0] == category])
+
+    await message.answer("⏳ Генерирую премиум-пост...")
+    try:
+        content = await content_generator.generate_premium_post(
+            category=topic[0],
+            title=topic[1],
+            description=topic[2],
+        )
+
+        msg = await bot.send_message(
+            chat_id=config.PREMIUM_CHANNEL_ID,
+            text=content,
+            parse_mode=ParseMode.HTML,
+        )
+
+        await message.answer(
+            f"✅ Премиум-пост опубликован!\n"
+            f"Категория: {category}\n"
+            f"Тема: {topic[1]}\n"
+            f"Сообщение: {msg.message_id}"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка публикации премиум-поста: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
 

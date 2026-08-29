@@ -1,4 +1,5 @@
 import logging
+import random
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -93,6 +94,42 @@ async def catchup_post():
         logger.error(f"Ошибка публикации ловчего поста: {e}")
 
 
+PREMIUM_TOPICS = [
+    ("deep_analysis", "Нейропластичность и обучение взрослых", "Детальный разбор механизмов нейропластичности после 25 лет"),
+    ("deep_analysis", "Дофаминовая система: полный гайд", "Мезолимбический путь, рецепторы D1/D2, сенсибилизация"),
+    ("deep_analysis", "Сон и консолидация памяти", "Роль REM и глубокого сна в обучении, глимфатическая система"),
+    ("protocol_plus", "Протокол утренней продуктивности", "Полный стек: свет, движение, питание, работа — с таймингами"),
+    ("protocol_plus", "Протокол глубокого сна", "Температура, освещение, добавки, дыхание — полный протокол"),
+    ("protocol_plus", "Протокол фокуса на 4+ часа", "Блоки, питание, звук, среда — расширенная версия"),
+    ("weekly_digest", "Дайджест недели: 3 открытия", "Обзор ключевых исследований недели с практическими выводами"),
+]
+
+
+async def premium_post():
+    """Генерирует и публикует премиум-пост."""
+    if not config.PREMIUM_CHANNEL_ID:
+        return
+
+    topic = random.choice(PREMIUM_TOPICS)
+    logger.info(f"Запуск премиум-поста: {topic[1]}")
+
+    try:
+        content = await content_generator.generate_premium_post(
+            category=topic[0],
+            title=topic[1],
+            description=topic[2],
+        )
+
+        await _bot.send_message(
+            chat_id=config.PREMIUM_CHANNEL_ID,
+            text=content,
+            parse_mode="HTML",
+        )
+        logger.info(f"Премиум-пост опубликован: {topic[1]}")
+    except Exception as e:
+        logger.error(f"Ошибка публикации премиум-поста: {e}")
+
+
 def setup_scheduler() -> AsyncIOScheduler:
     tz = pytz.timezone(config.TIMEZONE)
     scheduler = AsyncIOScheduler(timezone=tz)
@@ -162,5 +199,22 @@ def setup_scheduler() -> AsyncIOScheduler:
         name="Ловчий пост (каждые 2 недели)",
         replace_existing=True,
     )
+
+    # Премиум-канал
+    if config.PREMIUM_CHANNEL_ID:
+        for i, time_str in enumerate(config.PREMIUM_POST_TIMES):
+            parts = time_str.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+            scheduler.add_job(
+                premium_post,
+                CronTrigger(
+                    day_of_week="mon-sun",
+                    hour=hour,
+                    minute=minute,
+                ),
+                id=f"premium_post_{i}",
+                name=f"Премиум-пост {time_str}",
+                replace_existing=True,
+            )
 
     return scheduler
