@@ -13,6 +13,7 @@ from aiogram.types import (
     FSInputFile,
 )
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramForbiddenError
 
 import config
@@ -26,7 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=config.BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 router = Router()
 
