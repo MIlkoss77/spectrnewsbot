@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# runtime state
+recent_topics.json
+topic_state.json
+post_counter.txt
+premium_counter.txt
