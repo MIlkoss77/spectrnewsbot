@@ -298,13 +298,18 @@ DAY_EVENING_TYPES = ["micro_protocol", "myth_buster", "research_digest", "evenin
 def get_content_type_for_slot(hour: int) -> str:
     """Pick a content type based on the time slot.
 
-    Morning (before 10): always protocol (micro_protocol or morning_routine)
+    Morning (before 10): protocols get double weight, but the full
+    rotation is allowed — with a single daily post the channel still
+    needs variety across all rubrics.
     Day/Evening: weighted random from all types
     """
-    if hour < 10:
-        return random.choice(MORNING_TYPES)
-    types = [CONTENT_TYPES[t] for t in DAY_EVENING_TYPES if t in CONTENT_TYPES]
-    weights = [t.weight for t in types]
+    types = list(CONTENT_TYPES.values())
+    weights = []
+    for t in types:
+        weight = t.weight
+        if hour < 10 and t.key in ("micro_protocol", "morning_routine"):
+            weight *= 2
+        weights.append(weight)
     chosen = random.choices(types, weights=weights, k=1)[0]
     return chosen.key
 
