@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pre-push guard: stops a push that would break the server's older Python.
+# Activate once with:  git config core.hooksPath .githooks
+# Skip deliberately with:  git push --no-verify
+
+echo "pre-push: запускаю проверки (tools_preflight.py)..."
+
+PY=python3
+command -v "$PY" >/dev/null 2>&1 || PY=python
+
+if ! command -v "$PY" >/dev/null 2>&1; then
+    echo "pre-push: Python не найден — проверки пропущены"
+    exit 0
+fi
+
+"$PY" tools_preflight.py || {
+    echo ""
+    echo "pre-push: проверки не пройдены, пуш отменён."
+    echo "Если уверены — повторите с --no-verify"
+    exit 1
+}
+
+exit 0

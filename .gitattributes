@@ -1,0 +1,9 @@
+# Shell-скрипты и хуки должны оставаться с LF: CRLF ломает их выполнение.
+*.sh text eol=lf
+.githooks/* text eol=lf
+pre-push text eol=lf
+
+# Остальные текстовые файлы — как есть.
+*.py text
+*.md text
+*.txt text
