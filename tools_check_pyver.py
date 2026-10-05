@@ -61,12 +61,26 @@ def _annotation_nodes(tree: ast.Module) -> list:
 
 
 def check_file(path: str) -> list:
+    """Return compatibility problems in one file.
+
+    Any unexpected failure is reported as an issue for that file instead of
+    killing the whole scan, so the real cause is always visible.
+    """
     issues = []
-    src = open(path, encoding="utf-8").read()
+    try:
+        with open(path, encoding="utf-8") as handle:
+            src = handle.read()
+    except OSError as exc:
+        return [f"не читается: {type(exc).__name__}: {exc}"]
+    except UnicodeDecodeError as exc:
+        return [f"не UTF-8: {exc}"]
+
     try:
         tree = ast.parse(src)
     except SyntaxError as exc:
         return [f"SyntaxError line {exc.lineno}: {exc.msg}"]
+    except Exception as exc:  # noqa: BLE001 - surface anything the parser raises
+        return [f"{type(exc).__name__} при разборе: {exc}"]
 
     lazy = _has_future_annotations(tree)
 
@@ -93,7 +107,7 @@ def check_file(path: str) -> list:
                     f"'{FUTURE_ANNOTATIONS}': {segment[:60]}"
                 )
 
-    # 3) API added in 3.9+ that does not exist on 3.8
+    # 3) API added after 3.8
     if TARGET < (3, 9):
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
@@ -103,10 +117,8 @@ def check_file(path: str) -> list:
                         f"not available on {TARGET[0]}.{TARGET[1]}"
                     )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id == "anext" and not hasattr(__builtins__, "anext"):
-                    issues.append(
-                        f"line {node.lineno}: anext() needs 3.10+"
-                    )
+                if node.func.id == "anext":
+                    issues.append(f"line {node.lineno}: anext() needs 3.10+")
 
     return issues
 
@@ -114,27 +126,46 @@ def check_file(path: str) -> list:
 def main() -> int:
     global TARGET
     if "--target" in sys.argv:
-        raw = sys.argv[sys.argv.index("--target") + 1]
-        TARGET = tuple(int(p) for p in raw.split("."))
+        index = sys.argv.index("--target")
+        if len(sys.argv) <= index + 1:
+            print("нужно значение: --target 3.8")
+            return 2
+        raw = sys.argv[index + 1]
+        try:
+            TARGET = tuple(int(p) for p in raw.split("."))
+        except ValueError:
+            print(f"не разобрал версию: {raw!r}")
+            return 2
 
+    verbose = "-v" in sys.argv or "--verbose" in sys.argv
     root = os.path.dirname(os.path.abspath(__file__))
     files = find_py_files(root)
     total_issues = 0
 
-    print(f"Target Python: {TARGET[0]}.{TARGET[1]} | files: {len(files)}")
+    print(f"Target Python: {TARGET[0]}.{TARGET[1]} | files: {len(files)} | "
+          f"разбираю интерпретатором {sys.version.split()[0]}", flush=True)
     for path in files:
-        issues = check_file(path)
+        rel = os.path.relpath(path, root)
+        if verbose:
+            print(f"  проверяю {rel}", flush=True)
+        try:
+            issues = check_file(path)
+        except Exception as exc:  # noqa: BLE001 - never lose the cause
+            import traceback
+            issues = [f"ВНУТРЕННЯЯ ОШИБКА ПРОВЕРКИ: {type(exc).__name__}: {exc}"]
+            traceback.print_exc()
         if issues:
             total_issues += len(issues)
-            print(f"\n{os.path.relpath(path, root)}")
+            print(f"\n{rel}", flush=True)
             for issue in issues:
-                print(f"  - {issue}")
+                print(f"  - {issue}", flush=True)
 
     if total_issues:
-        print(f"\n{total_issues} issue(s) would break on Python {TARGET[0]}.{TARGET[1]}")
+        print(f"\n{total_issues} issue(s) would break on Python {TARGET[0]}.{TARGET[1]}",
+              flush=True)
         return 1
 
-    print(f"No constructs incompatible with Python {TARGET[0]}.{TARGET[1]} found")
+    print(f"No constructs incompatible with Python {TARGET[0]}.{TARGET[1]} found", flush=True)
     return 0
 
 
