@@ -16,6 +16,8 @@ from the live catalogue, so a model can be chosen on real numbers.
 
     python3 tools_check_models.py --pricing openai/gpt-4o-mini,anthropic/claude-3.5-haiku
 """
+from __future__ import annotations
+
 import asyncio
 import sys
 
