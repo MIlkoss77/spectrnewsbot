@@ -12,6 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+# Primary model. Override in .env; verify with: python3 tools_check_models.py
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 POST_TIMES_RAW = os.getenv("POST_TIMES", "09:00")
@@ -29,9 +30,12 @@ PROXY_URL = os.getenv("PROXY_URL", "")
 # Send one test post to the channel on every bot start (set false for production)
 STARTUP_POST = os.getenv("STARTUP_POST", "true").strip().lower() not in ("false", "0", "no")
 
-FALLBACK_MODELS = [
-    "deepseek/deepseek-v4-flash",
-    "google/gemini-2.0-flash-001",
-]
+# Fallback models, used when the primary one fails or returns nothing.
+# These were verified as dead on the production server and were removed:
+#   deepseek/deepseek-v4-flash     -> ответ 200 без текста, валил генерацию
+#   google/gemini-2.0-flash-001    -> 404 No endpoints found
+# Run `python3 tools_check_models.py --free` to list free models that exist
+# right now, then put one or two working ids here.
+FALLBACK_MODELS: list = []
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"

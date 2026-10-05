@@ -421,8 +421,25 @@ async def _call_openrouter(model: str, user_prompt: str, system_prompt: str = No
             logger.error("OpenRouter %s returned %d: %s", model, resp.status_code, resp.text[:300])
             return None
 
-        data = resp.json()
-        choice = data["choices"][0]
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.error("OpenRouter %s returned non-JSON response", model)
+            return None
+
+        # OpenRouter can return an error object with HTTP 200
+        api_error = data.get("error")
+        if api_error:
+            message = api_error.get("message") if isinstance(api_error, dict) else str(api_error)
+            logger.warning("OpenRouter %s error: %s", model, str(message)[:200])
+            return None
+
+        choices = data.get("choices") or []
+        if not choices:
+            logger.warning("OpenRouter %s returned no choices", model)
+            return None
+
+        choice = choices[0]
         finish_reason = choice.get("finish_reason", "unknown")
         logger.info("Model %s finish_reason: %s", model, finish_reason)
 
@@ -430,7 +447,21 @@ async def _call_openrouter(model: str, user_prompt: str, system_prompt: str = No
         if finish_reason == "length":
             logger.warning("Output truncated by token limit for %s", model)
             return None
+        if finish_reason in ("content_filter", "error"):
+            logger.warning("Output refused by %s (finish_reason=%s)", model, finish_reason)
+            return None
 
-        raw = choice["message"]["content"].strip()
-        return _clean_text(raw)
+        # message.content can be null (empty completion, refusal) or a list of
+        # parts on some providers — never assume it is a string.
+        content = (choice.get("message") or {}).get("content")
+        if isinstance(content, list):
+            content = " ".join(
+                part.get("text", "") for part in content if isinstance(part, dict)
+            )
+        if not isinstance(content, str) or not content.strip():
+            logger.warning("OpenRouter %s returned empty content (finish_reason=%s)",
+                           model, finish_reason)
+            return None
+
+        return _clean_text(content)
 

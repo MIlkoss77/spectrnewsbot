@@ -24,6 +24,9 @@ from content.prompts import (  # noqa: E402
 
 STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".selfcheck_state")
 
+# Captured before any test replaces generator._call_openrouter with a stub.
+ORIGINAL_CALL_OPENROUTER = generator._call_openrouter
+
 PASSED = []
 FAILED = []
 
@@ -83,6 +86,43 @@ async def fake_short(model, user_prompt, system_prompt=None, max_tokens=1600):
 async def fake_premium(model, user_prompt, system_prompt=None, max_tokens=1600):
     STATS["calls"] += 1
     return PREMIUM_POST
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None, bad_json=False):
+        self.status_code = status_code
+        self._payload = payload
+        self._bad_json = bad_json
+
+    @property
+    def text(self):
+        """The generator logs this on error responses."""
+        if self._payload is None:
+            return ""
+        return json.dumps(self._payload, ensure_ascii=False)
+
+    def json(self):
+        if self._bad_json:
+            raise ValueError("not json")
+        return self._payload
+
+
+class FakeClient:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, *args, **kwargs):
+        return self._response
+
+
+def patch_response(response):
+    generator.httpx.AsyncClient = lambda **kwargs: FakeClient(response)
 
 
 async def main() -> int:
@@ -198,6 +238,42 @@ async def main() -> int:
     print("\n10. Markdown never reaches a post")
     check("clean post stays clean",
           not re.search(r"(?<!\w)\*|`|^\s*#\s", generator._clean_text(GOOD_POST), re.M))
+
+    print("\n11. Broken API responses never crash generation")
+    # Sections 8-9 replaced _call_openrouter on the module with stubs, so the
+    # real function has to be taken from source, not from the patched module.
+    real_call = ORIGINAL_CALL_OPENROUTER
+    real_client = generator.httpx.AsyncClient
+    try:
+        # OpenRouter can answer 200 with null content (observed with
+        # deepseek/deepseek-v4-flash on the production server).
+        patch_response(FakeResponse(200, {"choices": [{"message": {"content": None},
+                                                      "finish_reason": "stop"}]}))
+        check("null content returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(200, {"error": {"message": "model not found"}}))
+        check("200 with error object returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(200, {}))
+        check("missing choices returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(404, {"error": {"message": "no endpoints"}}))
+        check("404 returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(200, None, bad_json=True))
+        check("non-JSON returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(200, {"choices": [{"message": {"content": ""},
+                                                      "finish_reason": "content_filter"}]}))
+        check("refused completion returns None", await real_call("m", "p") is None)
+
+        patch_response(FakeResponse(200, {"choices": [{
+            "message": {"content": [{"type": "text", "text": "Частичный ответ."}]},
+            "finish_reason": "stop"}]}))
+        check("list content is joined", (await real_call("m", "p")) == "Частичный ответ.")
+    finally:
+        generator.httpx.AsyncClient = real_client
+        generator._call_openrouter = real_call
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
