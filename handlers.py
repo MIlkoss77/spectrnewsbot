@@ -5,8 +5,9 @@ from aiogram.types import Message
 from aiogram.filters import CommandStart, Command
 
 from config import ADMIN_ID, CHANNEL_ID
-from content.generator import generate_content, generate_premium_content
+from content.generator import PollPost, generate_content, generate_premium_content
 from content.prompts import CONTENT_TYPES, PREMIUM_CONTENT_TYPES
+from scheduler import send_post
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -177,6 +178,21 @@ async def _parse_requested_type(message: Message, valid_types) -> tuple:
     return None, True
 
 
+def _preview(ctype: str, post) -> str:
+    """Human-readable preview text for a generated post."""
+    if isinstance(post, PollPost):
+        options = "\n".join(f"  \u2022 {opt}" for opt in post.options)
+        parts = []
+        if post.intro:
+            parts.append(post.intro)
+        parts.append(f"\u2753 {post.question}")
+        parts.append(options)
+        if post.hashtags:
+            parts.append(post.hashtags)
+        return "\n\n".join(parts)
+    return post
+
+
 @router.message(Command("generate"))
 async def cmd_generate(message: Message) -> None:
     content_type, error = await _parse_requested_type(message, CONTENT_TYPES)
@@ -186,10 +202,10 @@ async def cmd_generate(message: Message) -> None:
     await message.answer("\u23f3 Генерирую пост...")
 
     try:
-        ctype, text = await generate_content(content_type)
+        ctype, post = await generate_content(content_type)
         label = CONTENT_TYPES[ctype].label
         await message.answer(
-            f"<b>\U0001f4dd Превью ({label}):</b>\n\n{text}",
+            f"<b>\U0001f4dd Превью ({label}):</b>\n\n{_preview(ctype, post)}",
             parse_mode=None,
         )
     except Exception:
@@ -210,8 +226,9 @@ async def cmd_post(message: Message) -> None:
     await message.answer("\u23f3 Генерирую и публикую...")
 
     try:
-        ctype, text = await generate_content(content_type)
-        await message.bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=None)
+        ctype, post = await generate_content(content_type)
+        # Ручная публикация идёт как обычный пост; CTA добавляется расписанием.
+        await send_post(message.bot, ctype, post, with_cta=False)
         label = CONTENT_TYPES[ctype].label
         await message.answer(f"\u2705 Опубликовано ({label}) в {CHANNEL_ID}")
     except Exception:

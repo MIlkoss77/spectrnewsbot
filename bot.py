@@ -44,9 +44,11 @@ async def main() -> None:
         try:
             from datetime import datetime, timezone, timedelta
             from content.generator import generate_for_slot
+            from scheduler import send_post
             now = datetime.now(timezone(timedelta(hours=3)))
-            ctype, text = await generate_for_slot(now.hour)
-            await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=None)
+            ctype, post = await generate_for_slot(now.hour)
+            # No CTA on the startup post: it is a smoke test, not a scheduled slot.
+            await send_post(bot, ctype, post, with_cta=False)
             logger.info("Startup post sent [%s]", ctype)
         except Exception:
             logger.exception("Startup post failed")

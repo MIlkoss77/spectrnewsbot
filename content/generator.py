@@ -1,7 +1,8 @@
 import logging
 import random
 import re
-from typing import Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 import httpx
 
@@ -28,11 +29,26 @@ MAX_GENERATION_RETRIES = 2
 # describe a *refusal* to give medical advice ("это не лечение"). Flagging
 # them would make honest posts fail, so the style check ignores them.
 BANNED_CHECK_EXCEPTIONS = {"лечение", "лечить", "вылечить", "диагноз"}
-CTA_TEXT = (
-    "\n\n---\n"
-    "\U0001f4a1 Полный гайд по нейро-оптимизации "
-    "\u2192 spectrmind.ru"
-)
+
+
+@dataclass
+class PollPost:
+    """A structured Telegram poll.
+
+    Polls must be sent with send_poll, not as plain text: a text post with
+    answer options on separate lines looks like a poll but has no buttons.
+    """
+
+    question: str
+    options: List[str]
+    intro: str = ""      # optional context shown above the poll
+    hashtags: str = ""
+
+    @property
+    def context_text(self) -> str:
+        """Text posted together with the poll (context + hashtags)."""
+        parts = [p for p in (self.intro.strip(), self.hashtags.strip()) if p]
+        return "\n\n".join(parts)
 
 
 def _clean_text(text: str) -> str:
@@ -305,16 +321,137 @@ async def _generate_with_fallback(
     raise RuntimeError("All models failed to generate content")
 
 
-async def generate_content(content_type: Optional[str] = None) -> Tuple[str, str]:
-    """Generate a free-channel post. Returns (content_type, post_text).
+POLL_MARKER = "ВАРИАНТЫ:"
 
-    Uses the topic pool for explicit topic assignment (no repeats), tries
-    the primary model first and then FALLBACK_MODELS, validates length and
-    style, and retries when the output is truncated or full of cliches.
-    Raises RuntimeError if all models fail.
+
+def _is_question_line(line: str) -> bool:
+    """True for the poll question, false for preamble or an answer option."""
+    stripped = line.strip()
+    if not stripped or len(stripped.split()) < 4:
+        return False
+    if "?" in stripped:
+        return True
+    return stripped.startswith(("\U0001f4ca", "\u2753", "\u2754"))
+
+
+def _clean_option(line: str) -> str:
+    """Turn a generated answer line into a bare poll option."""
+    text = line.strip()
+    text = re.sub(r"^[-•*\d.)\s]+", "", text)          # ", -", "*", "1."
+    text = re.sub(r"^[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]+\s*", "", text)  # leading emoji
+    text = text.strip(" .,;:—-")
+    return text
+
+
+def _parse_poll_text(text: str, content_type: str) -> Optional[PollPost]:
+    """Build a PollPost from generated text.
+
+    The model is asked for "ВОПРОС:", an optional context paragraph, the marker
+    ВАРИАНТЫ: and 4 answer lines. Anything that does not fit that shape returns
+    None, and the caller falls back to a retry.
+    """
+    if POLL_MARKER not in text:
+        logger.warning("Poll output has no %s marker", POLL_MARKER)
+        return None
+
+    body, _, tail = text.partition(POLL_MARKER)
+    question = ""
+    intro_lines = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.upper().startswith("ВОПРОС:"):
+            question = stripped.split(":", 1)[1].strip()
+        elif not question and _is_question_line(stripped):
+            question = stripped
+        else:
+            intro_lines.append(stripped)
+
+    if not question:
+        logger.warning("Poll output has no question")
+        return None
+
+    options = []
+    for line in tail.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Stop at a trailing hashtag line or an invitation to comment
+        if stripped.startswith("#"):
+            break
+        if "комментар" in stripped.lower() and len(stripped.split()) > 4:
+            break
+        option = _clean_option(stripped)
+        if not option or len(option.split()) > 6:
+            continue
+        options.append(option)
+        if len(options) == 4:
+            break
+
+    if len(options) < 2:
+        logger.warning("Poll output has only %d options", len(options))
+        return None
+
+    intro = " ".join(intro_lines).strip()
+    return PollPost(
+        question=question[:255],           # Telegram limit
+        options=[opt[:100] for opt in options],  # Telegram limit per option
+        intro=intro,
+        hashtags=get_hashtags(content_type),
+    )
+
+
+async def generate_poll() -> Tuple[str, PollPost]:
+    """Generate a native Telegram poll (question + options), not plain text."""
+    content_type = "poll"
+    topic = get_next_topic(content_type)
+    prompt = _build_prompt(topic, get_prompt(content_type), hashtags="")
+    models = [OPENROUTER_MODEL] + list(FALLBACK_MODELS)
+    last_problem = "нет ответа"
+
+    def build_poll(text: str) -> Optional[PollPost]:
+        poll = _parse_poll_text(text, content_type)
+        if poll is None:
+            return None
+        if _banned_hits(poll.question):
+            logger.warning("Poll question contains a cliche, retrying")
+            return None
+        return poll
+
+    for model in models:
+        for attempt in range(MAX_GENERATION_RETRIES + 1):
+            logger.info("Trying model %s for poll, topic: %s (attempt %d)",
+                        model, topic[:40], attempt + 1)
+            result = await _call_openrouter(model, prompt, max_tokens=800)
+            if not result:
+                last_problem = "модель не ответила"
+                break
+
+            poll = build_poll(result)
+            if poll:
+                logger.info("Poll ready via %s: %r (%d options)",
+                            model, poll.question[:60], len(poll.options))
+                return content_type, poll
+
+            last_problem = "ответ не похож на опрос нужного вида"
+            logger.warning("Poll output rejected (attempt %d), retrying", attempt + 1)
+
+    raise RuntimeError(f"Poll generation failed: {last_problem}")
+
+
+async def generate_content(content_type: Optional[str] = None) -> Tuple[str, "str | PollPost"]:
+    """Generate a free-channel post. Returns (content_type, post).
+
+    For every rubric except "poll" the post is a plain string. For "poll" it is
+    a PollPost, so the caller can publish a real Telegram poll with buttons
+    instead of a text post that merely looks like one.
     """
     if content_type is None:
         content_type = get_random_content_type()
+
+    if content_type == "poll":
+        return await generate_poll()
 
     topic = get_next_topic(content_type)
     return await _generate_with_fallback(
@@ -336,11 +473,6 @@ async def generate_for_slot(hour: int) -> Tuple[str, str]:
     """
     content_type = get_content_type_for_slot(hour)
     return await generate_content(content_type)
-
-
-def add_cta(text: str) -> str:
-    """Append CTA link to spectrmind.ru."""
-    return text + CTA_TEXT
 
 
 async def generate_premium_content(content_type: Optional[str] = None) -> Tuple[str, str]:

@@ -30,6 +30,60 @@ PROXY_URL = os.getenv("PROXY_URL", "")
 # Send one test post to the channel on every bot start (set false for production)
 STARTUP_POST = os.getenv("STARTUP_POST", "true").strip().lower() not in ("false", "0", "no")
 
+# ---------------------------------------------------------------- CTA / продажи
+# Имя бота-воронки (без @): выдаёт бесплатный гайд и принимает оплату.
+BOT_USERNAME = os.getenv("BOT_USERNAME", "spectrnewsbot").lstrip("@")
+BOT_LINK = f"https://t.me/{BOT_USERNAME}"
+
+# Ссылка на бесплатный канал — для кнопки под постами.
+CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/ruspectrmind")
+
+# Прямые платёжные ссылки. Если пусто — соответствующая кнопка в CTA не показывается.
+PAID_CHANNEL_LINK = os.getenv("PAID_CHANNEL_LINK", "")   # закрытый канал, Робокасса
+PAID_CHANNEL_PRICE = os.getenv("PAID_CHANNEL_PRICE", "")
+NEUROGUIDE_LINK = os.getenv("NEUROGUIDE_LINK", "")       # полный нейрогайд
+NEUROGUIDE_PRICE = os.getenv("NEUROGUIDE_PRICE", "")
+
+# Показывать ли кнопки с прямыми ссылками на оплату (в дополнение к кнопке бота).
+SHOW_DIRECT_PAY_BUTTONS = os.getenv("SHOW_DIRECT_PAY_BUTTONS", "false").strip().lower() in ("true", "1", "yes")
+
+# CTA показывается каждый N-й пост. При одном посте в день: 3 = раз в 3 дня.
+CTA_EVERY_N_POSTS = int(os.getenv("CTA_EVERY_N_POSTS", "3"))
+
+# Тексты CTA: сначала боль читателя, потом предложение и ссылка на бота.
+CTA_VARIANTS = [
+    (
+        "\U0001f9e0 Устал от постоянной тревоги?\n\n"
+        "21-дневный протокол для мозга: сон, стресс, фокус — по шагам, "
+        "с объяснением, почему каждый шаг работает.\n\n"
+        "\u27a1\ufe0f Забрать протокол: @{username}"
+    ),
+    (
+        "\U0001f634 Не получается наладить сон?\n\n"
+        "21-дневный протокол для мозга: от света утром до температуры "
+        "спальни вечером — что делать и в каком порядке.\n\n"
+        "\u27a1\ufe0f Забрать протокол: @{username}"
+    ),
+    (
+        "\U0001f525 Постоянно в стрессе и на пределе?\n\n"
+        "21-дневный протокол для мозга: восстановление нервной системы "
+        "без эзотерики — только то, что подтверждено исследованиями.\n\n"
+        "\u27a1\ufe0f Забрать протокол: @{username}"
+    ),
+    (
+        "\U0001f9e9 Чувствуешь, что голова работает не на полную?\n\n"
+        "21-дневный протокол для мозга: концентрация, память и энергия — "
+        "пошаговая программа на три недели.\n\n"
+        "\u27a1\ufe0f Забрать протокол: @{username}"
+    ),
+]
+
+
+def get_cta_text(index: int = 0) -> str:
+    """Return a CTA text, cycling through the variants."""
+    variant = CTA_VARIANTS[index % len(CTA_VARIANTS)]
+    return variant.format(username=BOT_USERNAME)
+
 # Fallback models, used when the primary one fails or returns nothing.
 # These were verified as dead on the production server and were removed:
 #   deepseek/deepseek-v4-flash     -> ответ 200 без текста, валил генерацию

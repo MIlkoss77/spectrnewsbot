@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from content import generator, topic_pool  # noqa: E402
+import config  # noqa: E402
 from content.prompts import (  # noqa: E402
     CONTENT_TYPES, PREMIUM_CONTENT_TYPES, PROMPTS, PREMIUM_PROMPTS, RUBRIC_TAGS,
     SYSTEM_PROMPT, PREMIUM_SYSTEM_PROMPT, DAY_EVENING_TYPES, get_content_type_for_slot,
@@ -53,6 +54,19 @@ GOOD_POST = """Кофе сразу после пробуждения кажет�
 
 SHORT_POST = "Короткий обрывок текста без концовки"
 
+# Structured poll output, as the poll prompt requests it.
+POLL_POST = """ВОПРОС: Как вы засыпаете чаще всего?
+
+Засыпание — маркер состояния нервной системы.
+
+ВАРИАНТЫ:
+Быстро, за 10 минут
+20-30 минут
+Дольше часа
+По-разному
+
+Голосуй и напиши в комментариях, что помогает именно тебе."""
+
 # Long-form fixture for the premium pipeline (needs >= 250 real words).
 PREMIUM_POST = """Сколько часов вы спите в будни? Большинство отвечает «семь» и удивляется, почему к четвергу голова работает хуже, чем в понедельник. Разница между семью часами и восемью кажется мелочью, но именно на этом промежутке меняется работа памяти.
 
@@ -81,6 +95,11 @@ async def fake_good(model, user_prompt, system_prompt=None, max_tokens=1600):
 async def fake_short(model, user_prompt, system_prompt=None, max_tokens=1600):
     STATS["calls"] += 1
     return SHORT_POST
+
+
+async def fake_poll(model, user_prompt, system_prompt=None, max_tokens=1600):
+    STATS["calls"] += 1
+    return POLL_POST
 
 
 async def fake_premium(model, user_prompt, system_prompt=None, max_tokens=1600):
@@ -123,6 +142,22 @@ class FakeClient:
 
 def patch_response(response):
     generator.httpx.AsyncClient = lambda **kwargs: FakeClient(response)
+
+
+class FakeBot:
+    """Records what the publisher would send to Telegram."""
+
+    def __init__(self):
+        self.messages = []
+        self.polls = []
+
+    async def send_message(self, **kwargs):
+        self.messages.append(kwargs)
+        return None
+
+    async def send_poll(self, **kwargs):
+        self.polls.append(kwargs)
+        return None
 
 
 async def main() -> int:
@@ -210,8 +245,10 @@ async def main() -> int:
     check("hashtags present", "#бады" in text)
     check("word count sane", len(text.split()) > 60)
 
-    ctype, text = await asyncio.wait_for(generator.generate_content("poll"), timeout=30)
-    check("poll generated", ctype == "poll")
+    generator._call_openrouter = fake_poll
+    ctype, poll = await asyncio.wait_for(generator.generate_content("poll"), timeout=30)
+    check("poll rubric returns a PollPost", ctype == "poll" and isinstance(poll, generator.PollPost))
+    check("poll has question and options", bool(poll.question) and len(poll.options) == 4)
 
     generator._call_openrouter = fake_short
     failed = False
@@ -274,6 +311,79 @@ async def main() -> int:
     finally:
         generator.httpx.AsyncClient = real_client
         generator._call_openrouter = real_call
+
+    print("\n12. Poll rendering goes through send_poll, not text")
+    poll_text = """ВОПРОС: Сколько часов вы спите в среднем?
+
+Сон — базовая функция, от которой зависит почти всё остальное.
+
+ВАРИАНТЫ:
+До 6 часов
+6-7 часов
+7-8 часов
+Больше 9 часов
+
+Голосуй и расскажи в комментариях, как у тебя с режимом."""
+
+    poll = generator._parse_poll_text(poll_text, "poll")
+    check("poll parsed", poll is not None)
+    check("question extracted", poll.question == "Сколько часов вы спите в среднем?",
+          repr(poll.question))
+    check("four options extracted", len(poll.options) == 4, str(poll.options))
+    check("options have no bullets or emoji",
+          all(not re.match(r"^[-•*\d.\s]", o) for o in poll.options), str(poll.options))
+    check("invitation line is not an option",
+          not any("комментар" in o.lower() for o in poll.options))
+    check("intro captured", "базовая функция" in poll.intro)
+    check("hashtags attached to poll", "#" in poll.hashtags)
+
+    broken = generator._parse_poll_text("Просто текст без структуры опроса.", "poll")
+    check("malformed poll rejected", broken is None)
+    few = generator._parse_poll_text("ВОПРОС: Тест?\n\nВАРИАНТЫ:\nДа\n", "poll")
+    check("poll with one option rejected", few is None)
+    check("question detection rejects short lines",
+          not generator._is_question_line("Да"))
+    check("question detection accepts a question",
+          generator._is_question_line("Сколько часов вы спите?"))
+
+    print("\n13. Publisher sends polls and attaches CTA buttons")
+    import scheduler as sched
+
+    bot = FakeBot()
+    await sched.send_post(bot, "poll", poll, with_cta=False)
+    check("one context message sent", len(bot.messages) == 1)
+    check("one poll sent", len(bot.polls) == 1)
+    check("poll carries question", bot.polls[0]["question"] == poll.question)
+    check("poll carries 4 options", len(bot.polls[0]["options"]) == 4)
+    check("poll is anonymous single-choice",
+          bot.polls[0]["is_anonymous"] is True and bot.polls[0]["allows_multiple_answers"] is False)
+
+    bot = FakeBot()
+    await sched.send_post(bot, "micro_protocol", GOOD_POST, with_cta=True)
+    check("text post uses send_message", len(bot.messages) == 1 and not bot.polls)
+    check("CTA text attached", "21-дневный протокол" in bot.messages[0]["text"])
+    check("buttons attached to text post", bot.messages[0]["reply_markup"] is not None)
+
+    bot = FakeBot()
+    await sched.send_post(bot, "micro_protocol", GOOD_POST, with_cta=False)
+    check("no CTA when not a CTA post", "21-дневный протокол" not in bot.messages[0]["text"])
+
+    print("\n14. CTA buttons and rotation")
+    kb = sched.build_keyboard(with_pay_buttons=True)
+    kb_urls = [btn.url for row in kb.inline_keyboard for btn in row]
+    check("CTA keyboard leads to the bot", bool(config.BOT_LINK in kb_urls))
+    check("CTA keyboard includes the free channel", bool(config.CHANNEL_LINK in kb_urls))
+    plain_kb = sched.build_keyboard(with_pay_buttons=False)
+    plain_urls = [btn.url for row in plain_kb.inline_keyboard for btn in row]
+    check("plain keyboard has no purchase link", config.BOT_LINK not in plain_urls)
+
+    texts = {config.get_cta_text(i) for i in range(len(config.CTA_VARIANTS))}
+    check("CTA variants differ", len(texts) == len(config.CTA_VARIANTS))
+    check("CTA variants mention the pain",
+          all(any(w in t for w in ("тревог", "сон", "стресс", "голов")) for t in texts))
+    check("CTA variants name the bot", all(config.BOT_USERNAME in t for t in texts))
+    check("CTA offers the 21-day protocol", all("21-дневный" in t for t in texts))
+    check("CTA cycles", config.get_cta_text(len(config.CTA_VARIANTS)) == config.get_cta_text(0))
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
