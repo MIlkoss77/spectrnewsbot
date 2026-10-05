@@ -88,38 +88,80 @@ def _mask_docstrings_and_comments(src: str, tree: ast.Module) -> str:
     return "\n".join(result)
 
 
-def _fstring_quote_reuse_issues(src: str, tree: ast.Module) -> list:
-    """Find f-strings that reuse their own quote inside an expression.
+def _extract_expressions(body: str) -> list:
+    """Return (offset, text) of every top-level {...} expression in an f-string body.
 
-    Before 3.12 the f-string parser stopped at the first matching quote, so
-    ``f"{d["k"]}"`` and ``f"{fn(x, 'y')}"`` were syntax errors while
-    ``f"{fn(x, \\"y\\")}"`` was fine. That is a lexical rule, so it is checked on
-    the raw text: scan for an f-string delimiter, take the text up to the brace
-    and look for the same quote inside the expression. AST offsets are unusable
-    here because JoinedStr and FormattedValue report different columns.
+    Brace matching is done on the text instead of using AST columns: the byte
+    offsets reported for FormattedValue differ between Python versions, and on
+    3.8 they made the enclosing literal look like part of the expression. Text
+    scanning behaves identically everywhere. Doubled braces are literal text in
+    f-strings and are skipped.
+    """
+    found = []
+    depth = 0
+    start = None
+    index = 0
+    length = len(body)
+
+    while index < length:
+        char = body[index]
+        if char == "{" and body[index:index + 2] == "{{" and depth == 0:
+            index += 2
+            continue
+        if char == "}" and body[index:index + 2] == "}}" and depth == 0:
+            index += 2
+            continue
+        if char == "{":
+            if depth == 0:
+                start = index + 1
+            depth += 1
+        elif char == "}":
+            if depth == 1 and start is not None:
+                found.append((start, body[start:index]))
+                start = None
+            depth = max(0, depth - 1)
+        index += 1
+    return found
+
+
+def _fstring_issues(src: str, tree: ast.Module) -> list:
+    """Check f-strings against the pre-3.12 rules, on the raw source text.
+
+    Two things were illegal before 3.12 and both are reported:
+      * a backslash inside an expression part, e.g. f"{'\n'.join(x)}"
+      * reusing the enclosing quote inside an expression, e.g. f"{fn(x, 'y')}"
+    A backslash in the literal part (f"a\\nb{x}") was always legal, and flagging
+    it produced 53 false alarms on a real checkout.
     """
     issues = []
     text = _mask_docstrings_and_comments(src, tree)
     pattern = re.compile(r"""(?<![A-Za-z0-9_])([fF][rR]?|[rR][fF])(\"\"\"|'''|\"|')""")
+
     for match in pattern.finditer(text):
         quote = match.group(2)
         body_start = match.end()
-        line = text.count("\n", 0, match.start()) + 1
+        start_line = text.count("\n", 0, match.start()) + 1
 
         end = text.find(quote, body_start) if quote in ('"""', "'''") \
             else text.find("\n", body_start)
         body = text[body_start:end if end != -1 else len(text)]
-        same_quote_re = re.compile(re.escape(quote))
+        body_line = start_line
 
-        for brace in re.finditer(r"\{([^{}]*)\}", body):
-            expression = brace.group(1)
-            if not expression or expression.startswith("{"):
+        for offset, expression in _extract_expressions(body):
+            if not expression:
                 continue
-            if same_quote_re.search(expression):
-                snippet = quote + body[:40]
+            expr_line = body_line + body.count("\n", 0, offset)
+            snippet = expression[:70]
+
+            if "\\" in expression:
                 issues.append(
-                    f"line {line}: the f-string quote {quote!r} is reused inside its "
-                    f"expression (needs 3.12+): {snippet[:70]}"
+                    f"line {expr_line}: backslash inside an f-string expression "
+                    f"(needs 3.12+): {{{snippet}}}"
+                )
+            if quote in expression:
+                issues.append(
+                    f"line {expr_line}: the f-string quote {quote!r} is reused inside its "
+                    f"expression (needs 3.12+): {{{snippet}}}"
                 )
     return issues
 
@@ -196,22 +238,11 @@ def check_file(path: str) -> list:
     line_ends = _line_end_columns(src_lines)
 
     # 1) PEP 701: before 3.12 an f-string could not contain a backslash in its
-    # expression, nor reuse its own quote character there. Both are checked
-    # because both crashed production: the second one is what broke /diagnose.
-    # A \n in the literal part was always legal, so the whole f-string must not
-    # be flagged — that produced 53 false alarms on a real checkout.
+    # expression part, nor reuse its own quote there. Both crashed production,
+    # so both are reported. The check works on the source text, not on AST
+    # offsets, because those differ between Python versions.
     if TARGET < (3, 12):
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FormattedValue):
-                continue
-            segment = _safe_segment(src_lines, line_ends, node)
-            expr_segment = _safe_segment(src_lines, line_ends, node.value)
-            if "\\" in expr_segment:
-                issues.append(
-                    f"line {node.lineno}: backslash inside an f-string expression "
-                    f"(needs 3.12+): {segment[:70]}"
-                )
-        issues.extend(_fstring_quote_reuse_issues(src, tree))
+        issues.extend(_fstring_issues(src, tree))
 
     # 2) PEP 604: 'X | None' in an evaluated annotation
     if TARGET < (3, 10) and not lazy:
