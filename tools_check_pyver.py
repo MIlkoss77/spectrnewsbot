@@ -18,10 +18,24 @@ TARGET = (3, 8)
 FUTURE_ANNOTATIONS = "from __future__ import annotations"
 
 
+# Directories that hold other people's code or generated files. Scanning them
+# reports incompatibilities that have nothing to do with this project — a
+# hidden tool directory on one machine was enough to fail the check there while
+# it passed everywhere else.
+SKIP_DIRS = {
+    "__pycache__", ".git", ".venv", "venv", "env", ".env",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "node_modules",
+    "site-packages", ".selfcheck_state",
+}
+
+
 def find_py_files(root: str) -> list:
     found = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in ("__pycache__", ".git", ".venv", "venv")]
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in SKIP_DIRS and not d.startswith(".")
+        ]
         for name in filenames:
             if name.endswith(".py"):
                 found.append(os.path.join(dirpath, name))
