@@ -1,6 +1,6 @@
 import logging
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.types import Message
 from aiogram.filters import CommandStart, Command
 
@@ -89,19 +89,21 @@ async def cmd_diagnose(message: Message) -> None:
         await message.answer("\u26a0\ufe0f Эта команда только для админа.")
         return
 
-    from config import OPENROUTER_MODEL, FALLBACK_MODELS, PROXY_URL
+    from config import OPENROUTER_MODEL, PROXY_URL
     from content.generator import check_api_health
 
     await message.answer("\U0001f50d Проверяю модели, это займёт до минуты...")
 
     icons = {"ok": "\u2705", "fail": "\u26a0\ufe0f", "error": "\u274c"}
-    lines = [f"<b>\U0001f50d Диагностика</b>\n"]
+    bullet = "\u2022"
+    lines = ["<b>\U0001f50d Диагностика</b>\n"]
     lines.append(f"Прокси: <code>{PROXY_URL or 'не настроен'}</code>")
     lines.append(f"Основная модель: <code>{OPENROUTER_MODEL}</code>\n")
 
     results = await check_api_health()
     for status, model, detail in results:
-        lines.append(f"{icons.get(status, '\u2022')} <code>{model}</code>\n    {detail}")
+        icon = icons.get(status, bullet)
+        lines.append(f"{icon} <code>{model}</code>\n    {detail}")
 
     working = [r for r in results if r[0] == "ok"]
     if working:

@@ -8,9 +8,8 @@ import httpx
 from config import OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL, FALLBACK_MODELS, PROXY_URL
 from content.prompts import (
     SYSTEM_PROMPT, PREMIUM_SYSTEM_PROMPT, get_prompt, get_random_content_type,
-    get_content_type_for_slot, get_rubric_tag, get_hashtags, get_min_words, CONTENT_TYPES,
-    get_premium_content_type, get_premium_prompt, get_premium_rubric_tag,
-    get_premium_min_words, PREMIUM_CONTENT_TYPES,
+    get_content_type_for_slot, get_rubric_tag, get_hashtags, get_min_words, get_premium_content_type, get_premium_prompt, get_premium_rubric_tag,
+    get_premium_min_words,
 )
 from content.style_guide import (
     BANNED_PHRASES,

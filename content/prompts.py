@@ -6,7 +6,6 @@ from content.style_guide import (
     DEFAULT_MIN_WORDS,
     FACT_RULES,
     FORMAT_RULES,
-    MIN_WORDS_DEFAULT,
     MIN_WORDS_MEDIUM,
     MIN_WORDS_PREMIUM,
     MIN_WORDS_SHORT,
