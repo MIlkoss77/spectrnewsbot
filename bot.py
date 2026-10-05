@@ -39,7 +39,8 @@ async def main() -> None:
         logger.info("Premium channel: %s, schedule: %s", PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES)
 
     # Optional test post on startup, so a restart can be verified in the channel.
-    # Disable with STARTUP_POST=false — otherwise every restart adds a post.
+    # Отключено по умолчанию: перезапуск сервиса не должен дёргать подписчиков.
+    # Включить для разовой проверки: STARTUP_POST=true
     if STARTUP_POST:
         try:
             from datetime import datetime, timezone, timedelta
@@ -47,8 +48,8 @@ async def main() -> None:
             from scheduler import send_post
             now = datetime.now(timezone(timedelta(hours=3)))
             ctype, post = await generate_for_slot(now.hour)
-            # No CTA on the startup post: it is a smoke test, not a scheduled slot.
-            await send_post(bot, ctype, post, with_cta=False)
+            # Только контент: ни CTA, ни кнопок — это не рекламный пост.
+            await send_post(bot, ctype, post, with_cta=False, with_buttons=False)
             logger.info("Startup post sent [%s]", ctype)
         except Exception:
             logger.exception("Startup post failed")

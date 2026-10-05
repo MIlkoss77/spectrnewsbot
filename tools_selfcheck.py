@@ -371,11 +371,23 @@ async def main() -> int:
     print("\n14. CTA buttons and rotation")
     kb = sched.build_keyboard(with_pay_buttons=True)
     kb_urls = [btn.url for row in kb.inline_keyboard for btn in row]
-    check("CTA keyboard leads to the bot", bool(config.BOT_LINK in kb_urls))
-    check("CTA keyboard includes the free channel", bool(config.CHANNEL_LINK in kb_urls))
+    check("CTA keyboard leads to the bot", config.BOT_LINK in kb_urls)
+    check("free-channel invite is off by default",
+          config.CHANNEL_LINK not in kb_urls and config.SHOW_CHANNEL_BUTTON is False)
+
+    # Same call with the channel button switched on — the flag is read from
+    # config at import time, so patch it on the scheduler module.
+    sched.SHOW_CHANNEL_BUTTON = True
+    try:
+        kb_on = sched.build_keyboard(with_pay_buttons=True)
+        urls_on = [btn.url for row in kb_on.inline_keyboard for btn in row]
+        check("channel button appears when enabled", config.CHANNEL_LINK in urls_on)
+    finally:
+        sched.SHOW_CHANNEL_BUTTON = False
+
     plain_kb = sched.build_keyboard(with_pay_buttons=False)
-    plain_urls = [btn.url for row in plain_kb.inline_keyboard for btn in row]
-    check("plain keyboard has no purchase link", config.BOT_LINK not in plain_urls)
+    check("plain posts carry no keyboard at all", plain_kb is None,
+          repr(plain_kb))
 
     texts = {config.get_cta_text(i) for i in range(len(config.CTA_VARIANTS))}
     check("CTA variants differ", len(texts) == len(config.CTA_VARIANTS))
@@ -384,6 +396,18 @@ async def main() -> int:
     check("CTA variants name the bot", all(config.BOT_USERNAME in t for t in texts))
     check("CTA offers the 21-day protocol", all("21-дневный" in t for t in texts))
     check("CTA cycles", config.get_cta_text(len(config.CTA_VARIANTS)) == config.get_cta_text(0))
+
+    print("\n15. Startup post is silent by default")
+    check("STARTUP_POST defaults to false", config.STARTUP_POST is False)
+
+    bot = FakeBot()
+    await sched.send_post(bot, "micro_protocol", GOOD_POST, with_cta=False, with_buttons=False)
+    check("bare post has no text CTA", "21-дневный" not in bot.messages[0]["text"])
+    check("bare post has no buttons", bot.messages[0]["reply_markup"] is None)
+
+    bot = FakeBot()
+    await sched.send_post(bot, "micro_protocol", GOOD_POST, with_cta=False, with_buttons=True)
+    check("plain scheduled post also has no keyboard", bot.messages[0]["reply_markup"] is None)
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:

@@ -1,18 +1,18 @@
 """Compatibility scan: find constructs that break on the server's Python.
 
-The production server runs an older Python than the dev machine, which is how
-two outages happened: an f-string with a backslash (PEP 701, 3.12+) and an
-``X | None`` annotation evaluated at import time (PEP 604; on 3.9 it raises
-``TypeError: unsupported operand type(s) for |``).
+The production server runs Python 3.8 while the dev machine runs 3.13, which is
+how two outages happened: an f-string with a backslash (PEP 701, 3.12+) and an
+``X | None`` annotation evaluated at import time (PEP 604; on 3.8 and 3.9 it
+raises ``TypeError: unsupported operand type(s) for |``).
 
-    python tools_check_pyver.py                 # scan this project
-    python tools_check_pyver.py --target 3.11   # check against another version
+    python tools_check_pyver.py                 # scan against the server target
+    python tools_check_pyver.py --target 3.12   # check against another version
 """
 import ast
 import os
 import sys
 
-TARGET = (3, 11)
+TARGET = (3, 8)
 
 # Modules that do not need lazy annotations to be checked strictly.
 FUTURE_ANNOTATIONS = "from __future__ import annotations"
@@ -92,6 +92,21 @@ def check_file(path: str) -> list:
                     f"time on {TARGET[0]}.{TARGET[1]} — add "
                     f"'{FUTURE_ANNOTATIONS}': {segment[:60]}"
                 )
+
+    # 3) API added in 3.9+ that does not exist on 3.8
+    if TARGET < (3, 9):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("removeprefix", "removesuffix"):
+                    issues.append(
+                        f"line {node.lineno}: str.{node.func.attr}() needs 3.9+, "
+                        f"not available on {TARGET[0]}.{TARGET[1]}"
+                    )
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "anext" and not hasattr(__builtins__, "anext"):
+                    issues.append(
+                        f"line {node.lineno}: anext() needs 3.10+"
+                    )
 
     return issues
 

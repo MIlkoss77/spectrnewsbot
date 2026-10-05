@@ -20,6 +20,7 @@ from config import (
     PAID_CHANNEL_PRICE,
     POST_TIMES,
     PREMIUM_POST_TIMES,
+    SHOW_CHANNEL_BUTTON,
     SHOW_DIRECT_PAY_BUTTONS,
     get_cta_text,
 )
@@ -64,11 +65,14 @@ def _write_premium_counter(value: int) -> None:
 
 
 def build_keyboard(with_pay_buttons: bool) -> InlineKeyboardMarkup | None:
-    """Кнопки под постом: всегда канал, на CTA-постах — оплата и бот.
+    """Кнопки под постом.
 
-    Основной путь покупки — бот @spectrnewsbot: у него в /start бесплатный
-    гайд и кнопки оплаты. Прямые ссылки на Робокассу добавляются только если
-    заданы в .env и включены через SHOW_DIRECT_PAY_BUTTONS.
+    Обычные посты уходят без кнопок вообще: подписчики уже в канале, звать их
+    подписаться смысла нет. Кнопки появляются только на CTA-постах — там
+    основная кнопка ведёт в бота @spectrnewsbot с гайдом и оплатой.
+
+    Кнопка на бесплатный канал включается отдельно (SHOW_CHANNEL_BUTTON),
+    потому что она нужна только когда пост продвигается вне канала.
     """
     rows = []
 
@@ -90,7 +94,7 @@ def build_keyboard(with_pay_buttons: bool) -> InlineKeyboardMarkup | None:
                 guide_pay_label += f" {NEUROGUIDE_PRICE}"
             rows.append([InlineKeyboardButton(text=guide_pay_label, url=NEUROGUIDE_LINK)])
 
-    if CHANNEL_LINK:
+    if SHOW_CHANNEL_BUTTON and CHANNEL_LINK:
         rows.append([
             InlineKeyboardButton(text="\U0001f4da Бесплатный канал", url=CHANNEL_LINK)
         ])
@@ -98,14 +102,20 @@ def build_keyboard(with_pay_buttons: bool) -> InlineKeyboardMarkup | None:
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
-async def send_post(bot, content_type: str, post, with_cta: bool) -> None:
+async def send_post(
+    bot,
+    content_type: str,
+    post,
+    with_cta: bool,
+    with_buttons: bool = True,
+) -> None:
     """Publish a generated post to the channel.
 
     Polls go out through send_poll so Telegram renders real answer buttons;
     everything else is a plain text message. The CTA and the keyboard always
     belong to the same message, so they are built together here.
     """
-    keyboard = build_keyboard(with_pay_buttons=with_cta)
+    keyboard = build_keyboard(with_pay_buttons=with_cta) if with_buttons else None
     cta = get_cta_text(_read_counter()) if with_cta else ""
 
     if isinstance(post, PollPost):

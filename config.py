@@ -27,8 +27,10 @@ PREMIUM_POST_TIMES = [t.strip() for t in PREMIUM_POST_TIMES_RAW.split(",")]
 # Example: http://127.0.0.1:10809 or socks5://127.0.0.1:10808
 PROXY_URL = os.getenv("PROXY_URL", "")
 
-# Send one test post to the channel on every bot start (set false for production)
-STARTUP_POST = os.getenv("STARTUP_POST", "true").strip().lower() not in ("false", "0", "no")
+# Публиковать тестовый пост в канал при каждом старте бота.
+# По умолчанию выключено: перезапуск сервиса не должен дёргать подписчиков.
+# Включить для проверки: STARTUP_POST=true
+STARTUP_POST = os.getenv("STARTUP_POST", "false").strip().lower() in ("true", "1", "yes")
 
 # ---------------------------------------------------------------- CTA / продажи
 # Имя бота-воронки (без @): выдаёт бесплатный гайд и принимает оплату.
@@ -46,6 +48,11 @@ NEUROGUIDE_PRICE = os.getenv("NEUROGUIDE_PRICE", "")
 
 # Показывать ли кнопки с прямыми ссылками на оплату (в дополнение к кнопке бота).
 SHOW_DIRECT_PAY_BUTTONS = os.getenv("SHOW_DIRECT_PAY_BUTTONS", "false").strip().lower() in ("true", "1", "yes")
+
+# Показывать кнопку «Бесплатный канал» под обычными постами.
+# По умолчанию нет: подписчики уже в канале, звать их туда незачем.
+# Включать имеет смысл только при продвижении поста в других местах.
+SHOW_CHANNEL_BUTTON = os.getenv("SHOW_CHANNEL_BUTTON", "false").strip().lower() in ("true", "1", "yes")
 
 # CTA показывается каждый N-й пост. При одном посте в день: 3 = раз в 3 дня.
 CTA_EVERY_N_POSTS = int(os.getenv("CTA_EVERY_N_POSTS", "3"))

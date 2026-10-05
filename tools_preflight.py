@@ -15,15 +15,15 @@ import os
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 STEPS = [
-    ("Совместимость с Python на сервере", [sys.executable, "tools_check_pyver.py", "--target", "3.9"]),
+    ("Совместимость с Python на сервере (3.8)", [sys.executable, "tools_check_pyver.py", "--target", "3.8"]),
     ("Импорт всех модулей", [sys.executable, "tools_check_runtime.py"]),
     ("Офлайн-проверки логики", [sys.executable, "tools_selfcheck.py"]),
-    ("Линтер (цель 3.9)", ["ruff", "check", "--target-version", "py39", "--output-format", "concise", "."]),
+    ("Линтер (цель 3.8)", ["ruff", "check", "--target-version", "py38", "--output-format", "concise", "."]),
 ]
 
 
 def run(label: str, command: list) -> bool:
-    print(f"\n=== {label} ===")
+    print(f"\n=== {label} ===", flush=True)
     if command[0] == "ruff":
         from shutil import which
         if which("ruff") is None:
