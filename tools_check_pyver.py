@@ -143,6 +143,32 @@ def _annotation_nodes(tree: ast.Module) -> list:
     return found
 
 
+def _line_end_columns(src_lines: list) -> list:
+    """Byte length of every source line, for clamping column offsets."""
+    return [len(line.encode("utf-8")) for line in src_lines]
+
+
+def _safe_segment(src_lines: list, line_ends: list, node) -> str:
+    """Source text of a node, without the Python 3.8 get_source_segment bug.
+
+    Python 3.8 implements ast.get_source_segment by encoding the line to bytes,
+    slicing at byte offsets and decoding the result, which splits multi-byte
+    characters and raises UnicodeDecodeError on any line with Cyrillic text.
+    Columns are clamped to the line and decoded with errors='replace' instead.
+    """
+    lineno = getattr(node, "lineno", None)
+    if not lineno or lineno > len(src_lines):
+        return ""
+    line = src_lines[lineno - 1]
+    raw = line.encode("utf-8")
+    start = min(max(getattr(node, "col_offset", 0), 0), len(raw))
+    end = getattr(node, "end_col_offset", None)
+    if end is None or getattr(node, "end_lineno", lineno) != lineno:
+        end = line_ends[lineno - 1]
+    end = min(max(end, start), len(raw))
+    return raw[start:end].decode("utf-8", errors="replace")
+
+
 def check_file(path: str) -> list:
     """Return compatibility problems in one file.
 
@@ -166,6 +192,8 @@ def check_file(path: str) -> list:
         return [f"{type(exc).__name__} при разборе: {exc}"]
 
     lazy = _has_future_annotations(tree)
+    src_lines = src.split("\n")
+    line_ends = _line_end_columns(src_lines)
 
     # 1) PEP 701: before 3.12 an f-string could not contain a backslash in its
     # expression, nor reuse its own quote character there. Both are checked
@@ -176,8 +204,8 @@ def check_file(path: str) -> list:
         for node in ast.walk(tree):
             if not isinstance(node, ast.FormattedValue):
                 continue
-            segment = ast.get_source_segment(src, node) or ""
-            expr_segment = ast.get_source_segment(src, node.value) or ""
+            segment = _safe_segment(src_lines, line_ends, node)
+            expr_segment = _safe_segment(src_lines, line_ends, node.value)
             if "\\" in expr_segment:
                 issues.append(
                     f"line {node.lineno}: backslash inside an f-string expression "
@@ -189,7 +217,7 @@ def check_file(path: str) -> list:
     if TARGET < (3, 10) and not lazy:
         for lineno, annotation in _annotation_nodes(tree):
             if _is_pep604(annotation):
-                segment = ast.get_source_segment(src, annotation) or ""
+                segment = _safe_segment(src_lines, line_ends, annotation)
                 issues.append(
                     f"line {lineno}: 'X | Y' annotation (PEP 604) is evaluated at import "
                     f"time on {TARGET[0]}.{TARGET[1]} — add "
