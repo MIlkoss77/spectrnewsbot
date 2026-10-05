@@ -26,6 +26,9 @@ PREMIUM_POST_TIMES = [t.strip() for t in PREMIUM_POST_TIMES_RAW.split(",")]
 # Example: http://127.0.0.1:10809 or socks5://127.0.0.1:10808
 PROXY_URL = os.getenv("PROXY_URL", "")
 
+# Send one test post to the channel on every bot start (set false for production)
+STARTUP_POST = os.getenv("STARTUP_POST", "true").strip().lower() not in ("false", "0", "no")
+
 FALLBACK_MODELS = [
     "deepseek/deepseek-v4-flash",
     "google/gemini-2.0-flash-001",

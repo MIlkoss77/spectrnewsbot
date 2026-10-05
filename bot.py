@@ -5,7 +5,10 @@ import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from config import BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES
+from config import (
+    BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
+    PREMIUM_POST_TIMES, STARTUP_POST,
+)
 from handlers import router
 from scheduler import setup_scheduler
 
@@ -36,16 +39,20 @@ async def main() -> None:
     if PREMIUM_CHANNEL_ID:
         logger.info("Premium channel: %s, schedule: %s", PREMIUM_CHANNEL_ID, PREMIUM_POST_TIMES)
 
-    # Post one test message on startup so the user can verify it works
-    try:
-        from datetime import datetime, timezone, timedelta
-        from content.generator import generate_for_slot
-        now = datetime.now(timezone(timedelta(hours=3)))
-        ctype, text = await generate_for_slot(now.hour)
-        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=None)
-        logger.info("Startup post sent [%s]", ctype)
-    except Exception:
-        logger.exception("Startup post failed")
+    # Optional test post on startup, so a restart can be verified in the channel.
+    # Disable with STARTUP_POST=false — otherwise every restart adds a post.
+    if STARTUP_POST:
+        try:
+            from datetime import datetime, timezone, timedelta
+            from content.generator import generate_for_slot
+            now = datetime.now(timezone(timedelta(hours=3)))
+            ctype, text = await generate_for_slot(now.hour)
+            await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=None)
+            logger.info("Startup post sent [%s]", ctype)
+        except Exception:
+            logger.exception("Startup post failed")
+    else:
+        logger.info("Startup post disabled (STARTUP_POST=false)")
 
     try:
         await dp.start_polling(bot)

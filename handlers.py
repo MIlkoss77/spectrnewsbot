@@ -11,6 +11,32 @@ from content.prompts import CONTENT_TYPES, PREMIUM_CONTENT_TYPES
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Русские псевдонимы, чтобы не набирать ключи вручную.
+TYPE_ALIASES = {
+    "бады": "supplement_recap",
+    "бад": "supplement_recap",
+    "добавки": "supplement_recap",
+    "новости": "health_news",
+    "новость": "health_news",
+    "здоровье": "health_news",
+    "загадка": "brain_curiosity",
+    "загадки": "brain_curiosity",
+    "миф": "myth_buster",
+    "исследование": "research_digest",
+    "протокол": "micro_protocol",
+    "утро": "morning_routine",
+    "вечер": "evening_reflection",
+    "опрос": "poll",
+}
+
+
+def _resolve_type(requested: str, valid_types) -> str:
+    """Map a user-supplied argument (or Russian alias) to a content type key."""
+    key = requested.strip().lower()
+    if key in valid_types:
+        return key
+    return TYPE_ALIASES.get(key, "")
+
 
 def _is_admin(user_id: int) -> bool:
     return ADMIN_ID == 0 or user_id == ADMIN_ID
@@ -28,36 +54,68 @@ async def cmd_start(message: Message) -> None:
         "/post_premium \u2014 отправить премиум пост в личку (админ)\n"
         "/types \u2014 список типов контента\n"
         "/schedule \u2014 текущее расписание\n"
+        "/diagnose \u2014 проверить модели и прокси (админ)\n"
         "/help \u2014 справка",
         parse_mode="HTML",
     )
+
+
+def _rubric_lines(types_map) -> str:
+    return "\n".join(f"{ct.emoji} {ct.label}" for ct in types_map.values())
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(
         "\U0001f4a1 <b>Как работает бот:</b>\n\n"
-        "Автоматически генерирует и публикует посты о нейронауке "
-        "в канал SpectrMind 2-3 раза в день.\n\n"
-        "<b>Бесплатный канал:</b>\n"
-        "\u2699\ufe0f Микро-протоколы \u2014 практические советы\n"
-        "\u274c Разбор мифов \u2014 научные факты vs заблуждения\n"
-        "\U0001f52c Исследования \u2014 разбор научных работ\n"
-        "\u2600\ufe0f Утренние протоколы \u2014 старт дня для мозга\n"
-        "\U0001f319 Вечерние советы \u2014 восстановление и сон\n\n"
-        "<b>Премиум (в личку):</b>\n"
-        "\U0001f9ec Глубокие разборы \u2014 детальный анализ исследований\n"
-        "\U0001f48e Протоколы+ \u2014 расширенные протоколы с обоснованием\n"
-        "\U0001f4f0 Дайджесты \u2014 обзор открытий недели\n\n"
+        "\u2699\ufe0f Публикует один пост в день в канал SpectrMind. "
+        "Рубрика выбирается случайно, утром чаще выпадают протоколы.\n\n"
+        f"<b>Бесплатный канал:</b>\n{_rubric_lines(CONTENT_TYPES)}\n\n"
+        f"<b>Премиум (в личку):</b>\n{_rubric_lines(PREMIUM_CONTENT_TYPES)}\n\n"
         "<b>Генерация:</b>\n"
-        "/generate \u2014 случайный тип\n"
-        "/generate micro_protocol \u2014 конкретный тип\n"
-        "/post micro_protocol \u2014 опубликовать в бесплатный канал\n"
+        "/generate \u2014 случайная рубрика\n"
+        "/generate \u0431\u0430\u0434\u044b \u2014 конкретная рубрика (можно по-русски)\n"
+        "/post \u0431\u0430\u0434\u044b \u2014 опубликовать в канал (админ)\n"
         "/generate_premium \u2014 премиум пост\n"
-        "/post_premium \u2014 отправить в личку\n\n"
-        "<i>Используется платный OpenRouter API (GPT-4o-mini).</i>",
+        "/post_premium \u2014 отправить в личку (админ)",
         parse_mode="HTML",
     )
+
+
+@router.message(Command("diagnose"))
+async def cmd_diagnose(message: Message) -> None:
+    """Show which models and transport settings are actually working."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("\u26a0\ufe0f Эта команда только для админа.")
+        return
+
+    from config import OPENROUTER_MODEL, FALLBACK_MODELS, PROXY_URL
+    from content.generator import check_api_health
+
+    await message.answer("\U0001f50d Проверяю модели, это займёт до минуты...")
+
+    icons = {"ok": "\u2705", "fail": "\u26a0\ufe0f", "error": "\u274c"}
+    lines = [f"<b>\U0001f50d Диагностика</b>\n"]
+    lines.append(f"Прокси: <code>{PROXY_URL or 'не настроен'}</code>")
+    lines.append(f"Основная модель: <code>{OPENROUTER_MODEL}</code>\n")
+
+    results = await check_api_health()
+    for status, model, detail in results:
+        lines.append(f"{icons.get(status, '\u2022')} <code>{model}</code>\n    {detail}")
+
+    working = [r for r in results if r[0] == "ok"]
+    if working:
+        lines.append(
+            f"\n\u2705 Отвечают: {len(working)} из {len(results)}. "
+            f"Публикация пойдёт через <code>{working[0][1]}</code>."
+        )
+    else:
+        lines.append(
+            "\n\u274c Ни одна модель не ответила. Проверь, запущен ли прокси "
+            "на указанном порту, и верен ли <code>OPENROUTER_MODEL</code>."
+        )
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(Command("types"))
@@ -69,6 +127,11 @@ async def cmd_types(message: Message) -> None:
     lines.append("\n<b>Премиум (в личку):</b>")
     for ct in PREMIUM_CONTENT_TYPES.values():
         lines.append(f"{ct.emoji} <code>{ct.key}</code> \u2014 {ct.label} (вес {ct.weight})")
+    lines.append(
+        "\n<b>Русские псевдонимы:</b>\n"
+        + ", ".join(f"<code>{alias}</code>" for alias in sorted(TYPE_ALIASES))
+        + "\n\nПример: <code>/generate бады</code>"
+    )
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
@@ -87,27 +150,36 @@ async def cmd_schedule(message: Message) -> None:
         f"\n<b>Премиум (в личку админа):</b>\n"
         f"Время (МСК): {premium_times}\n"
     )
-    text += "\n<i>Бот автоматически генерирует и публикует посты в указанное время.</i>"
+    text += "\n<i>Рубрика для каждого поста выбирается автоматически из ротации.</i>"
     await message.answer(text, parse_mode="HTML")
+
+
+async def _parse_requested_type(message: Message, valid_types) -> tuple:
+    """Parse the optional type argument. Returns (content_type, error_sent)."""
+    args = message.text.split(maxsplit=1)
+    if len(args) <= 1:
+        return None, False
+
+    requested = args[1].strip()
+    resolved = _resolve_type(requested, valid_types)
+    if resolved:
+        return resolved, False
+
+    valid = ", ".join(valid_types.keys())
+    await message.answer(
+        f"\u274c Неизвестный тип: <code>{requested}</code>\n\n"
+        f"Доступные: {valid}\n"
+        f"Можно по-русски: {', '.join(sorted(TYPE_ALIASES))}",
+        parse_mode="HTML",
+    )
+    return None, True
 
 
 @router.message(Command("generate"))
 async def cmd_generate(message: Message) -> None:
-    args = message.text.split(maxsplit=1)
-    content_type = None
-
-    if len(args) > 1:
-        requested = args[1].strip()
-        if requested in CONTENT_TYPES:
-            content_type = requested
-        else:
-            valid = ", ".join(CONTENT_TYPES.keys())
-            await message.answer(
-                f"\u274c Неизвестный тип: <code>{requested}</code>\n\n"
-                f"Доступные: {valid}",
-                parse_mode="HTML",
-            )
-            return
+    content_type, error = await _parse_requested_type(message, CONTENT_TYPES)
+    if error:
+        return
 
     await message.answer("\u23f3 Генерирую пост...")
 
@@ -129,21 +201,9 @@ async def cmd_post(message: Message) -> None:
         await message.answer("\u26a0\ufe0f Эта команда только для админа.")
         return
 
-    args = message.text.split(maxsplit=1)
-    content_type = None
-
-    if len(args) > 1:
-        requested = args[1].strip()
-        if requested in CONTENT_TYPES:
-            content_type = requested
-        else:
-            valid = ", ".join(CONTENT_TYPES.keys())
-            await message.answer(
-                f"\u274c Неизвестный тип: <code>{requested}</code>\n\n"
-                f"Доступные: {valid}",
-                parse_mode="HTML",
-            )
-            return
+    content_type, error = await _parse_requested_type(message, CONTENT_TYPES)
+    if error:
+        return
 
     await message.answer("\u23f3 Генерирую и публикую...")
 
@@ -159,21 +219,9 @@ async def cmd_post(message: Message) -> None:
 
 @router.message(Command("generate_premium"))
 async def cmd_generate_premium(message: Message) -> None:
-    args = message.text.split(maxsplit=1)
-    content_type = None
-
-    if len(args) > 1:
-        requested = args[1].strip()
-        if requested in PREMIUM_CONTENT_TYPES:
-            content_type = requested
-        else:
-            valid = ", ".join(PREMIUM_CONTENT_TYPES.keys())
-            await message.answer(
-                f"\u274c Неизвестный тип: <code>{requested}</code>\n\n"
-                f"Доступные: {valid}",
-                parse_mode="HTML",
-            )
-            return
+    content_type, error = await _parse_requested_type(message, PREMIUM_CONTENT_TYPES)
+    if error:
+        return
 
     await message.answer("\u23f3 Генерирую премиум пост...")
 
@@ -195,21 +243,9 @@ async def cmd_post_premium(message: Message) -> None:
         await message.answer("\u26a0\ufe0f Эта команда только для админа.")
         return
 
-    args = message.text.split(maxsplit=1)
-    content_type = None
-
-    if len(args) > 1:
-        requested = args[1].strip()
-        if requested in PREMIUM_CONTENT_TYPES:
-            content_type = requested
-        else:
-            valid = ", ".join(PREMIUM_CONTENT_TYPES.keys())
-            await message.answer(
-                f"\u274c Неизвестный тип: <code>{requested}</code>\n\n"
-                f"Доступные: {valid}",
-                parse_mode="HTML",
-            )
-            return
+    content_type, error = await _parse_requested_type(message, PREMIUM_CONTENT_TYPES)
+    if error:
+        return
 
     await message.answer("\u23f3 Генерирую и отправляю в личку...")
 

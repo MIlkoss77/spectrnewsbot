@@ -10,3 +10,6 @@ recent_topics.json
 topic_state.json
 post_counter.txt
 premium_counter.txt
+
+# offline self-check scratch state
+.selfcheck_state/
