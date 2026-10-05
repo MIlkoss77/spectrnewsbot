@@ -10,6 +10,7 @@ raises ``TypeError: unsupported operand type(s) for |``).
 """
 import ast
 import os
+import re
 import sys
 
 TARGET = (3, 8)
@@ -55,6 +56,74 @@ def _is_pep604(node: ast.AST) -> bool:
     return isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr)
 
 
+def _mask_docstrings_and_comments(src: str, tree: ast.Module) -> str:
+    """Blank out docstrings and comments, keeping line numbers intact.
+
+    Documentation legitimately shows f-string examples, and those examples must
+    not be reported as real code. Lines are replaced character-wise with spaces
+    so every offset stays valid.
+    """
+    lines = src.split("\n")
+    blanked = [False] * len(lines)
+
+    def mask_range(start_line: int, end_line: int) -> None:
+        for index in range(start_line - 1, min(end_line, len(lines))):
+            blanked[index] = True
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            mask_range(node.lineno, getattr(node, "end_lineno", node.lineno))
+
+    result = []
+    for index, line in enumerate(lines):
+        if blanked[index]:
+            result.append(" " * len(line))
+            continue
+        hash_pos = line.find("#")
+        if hash_pos != -1:
+            result.append(line[:hash_pos] + " " * (len(line) - hash_pos))
+        else:
+            result.append(line)
+    return "\n".join(result)
+
+
+def _fstring_quote_reuse_issues(src: str, tree: ast.Module) -> list:
+    """Find f-strings that reuse their own quote inside an expression.
+
+    Before 3.12 the f-string parser stopped at the first matching quote, so
+    ``f"{d["k"]}"`` and ``f"{fn(x, 'y')}"`` were syntax errors while
+    ``f"{fn(x, \\"y\\")}"`` was fine. That is a lexical rule, so it is checked on
+    the raw text: scan for an f-string delimiter, take the text up to the brace
+    and look for the same quote inside the expression. AST offsets are unusable
+    here because JoinedStr and FormattedValue report different columns.
+    """
+    issues = []
+    text = _mask_docstrings_and_comments(src, tree)
+    pattern = re.compile(r"""(?<![A-Za-z0-9_])([fF][rR]?|[rR][fF])(\"\"\"|'''|\"|')""")
+    for match in pattern.finditer(text):
+        quote = match.group(2)
+        body_start = match.end()
+        line = text.count("\n", 0, match.start()) + 1
+
+        end = text.find(quote, body_start) if quote in ('"""', "'''") \
+            else text.find("\n", body_start)
+        body = text[body_start:end if end != -1 else len(text)]
+        same_quote_re = re.compile(re.escape(quote))
+
+        for brace in re.finditer(r"\{([^{}]*)\}", body):
+            expression = brace.group(1)
+            if not expression or expression.startswith("{"):
+                continue
+            if same_quote_re.search(expression):
+                snippet = quote + body[:40]
+                issues.append(
+                    f"line {line}: the f-string quote {quote!r} is reused inside its "
+                    f"expression (needs 3.12+): {snippet[:70]}"
+                )
+    return issues
+
+
 def _annotation_nodes(tree: ast.Module) -> list:
     """Yield (lineno, annotation) pairs that Python evaluates at import time."""
     found = []
@@ -98,17 +167,23 @@ def check_file(path: str) -> list:
 
     lazy = _has_future_annotations(tree)
 
-    # 1) PEP 701: backslash inside an f-string expression needs 3.12+
+    # 1) PEP 701: before 3.12 an f-string could not contain a backslash in its
+    # expression, nor reuse its own quote character there. Both are checked
+    # because both crashed production: the second one is what broke /diagnose.
+    # A \n in the literal part was always legal, so the whole f-string must not
+    # be flagged — that produced 53 false alarms on a real checkout.
     if TARGET < (3, 12):
         for node in ast.walk(tree):
             if not isinstance(node, ast.FormattedValue):
                 continue
             segment = ast.get_source_segment(src, node) or ""
-            if "\\" in segment:
+            expr_segment = ast.get_source_segment(src, node.value) or ""
+            if "\\" in expr_segment:
                 issues.append(
-                    f"line {node.lineno}: backslash inside f-string expression "
+                    f"line {node.lineno}: backslash inside an f-string expression "
                     f"(needs 3.12+): {segment[:70]}"
                 )
+        issues.extend(_fstring_quote_reuse_issues(src, tree))
 
     # 2) PEP 604: 'X | None' in an evaluated annotation
     if TARGET < (3, 10) and not lazy:
