@@ -1,10 +1,19 @@
 import logging
+import os
 
 from aiogram import Router
-from aiogram.types import Message
+from aiogram.types import FSInputFile, Message
 from aiogram.filters import CommandStart, Command
 
-from config import ADMIN_ID, CHANNEL_ID
+import database
+from config import (
+    ADMIN_ID,
+    CHANNEL_ID,
+    DB_PATH,
+    LEAD_MAGNET_CAPTION,
+    PDF_PATH,
+    build_lead_magnet_keyboard,
+)
 from content.generator import PollPost, generate_content, generate_premium_content
 from content.prompts import CONTENT_TYPES, PREMIUM_CONTENT_TYPES
 from scheduler import send_post
@@ -45,20 +54,54 @@ def _is_admin(user_id: int) -> bool:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
+    """Приветствие + выдача бесплатного гайда с кнопками покупки."""
+    user = message.from_user
+    try:
+        await database.add_subscriber(
+            DB_PATH,
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+        )
+    except Exception:
+        # Учёт подписчика не должен мешать выдаче гайда.
+        logger.exception("Не удалось сохранить подписчика %s", user.id)
+
+    if not os.path.exists(PDF_PATH):
+        logger.error("PDF не найден: %s", PDF_PATH)
+        await message.answer(
+            "\u26a0\ufe0f Гайд временно недоступен. Напиши нам — отправим вручную."
+        )
+        return
+
     await message.answer(
-        "\U0001f9e0 <b>SpectrMind Bot</b>\n\n"
-        "\u2699\ufe0f Бот для генерации и публикации постов о нейронауке.\n\n"
-        "<b>Команды:</b>\n"
-        "/generate \u2014 сгенерировать пост (превью)\n"
-        "/post \u2014 опубликовать в бесплатный канал (админ)\n"
-        "/generate_premium \u2014 сгенерировать премиум пост\n"
-        "/post_premium \u2014 отправить премиум пост в личку (админ)\n"
-        "/types \u2014 список типов контента\n"
-        "/schedule \u2014 текущее расписание\n"
-        "/diagnose \u2014 проверить модели и прокси (админ)\n"
-        "/help \u2014 справка",
+        "\U0001f44b Привет! Я — бот канала <b>SpectrMind</b>.\n\n"
+        "Забирай свой бесплатный гайд \U0001f447",
         parse_mode="HTML",
     )
+    await message.answer_document(
+        document=FSInputFile(PDF_PATH),
+        caption=LEAD_MAGNET_CAPTION,
+        reply_markup=build_lead_magnet_keyboard(),
+        parse_mode="HTML",
+    )
+    logger.info("Гайд выдан пользователю %s (@%s)", user.id, user.username or "-")
+
+
+@router.message(Command("subscribers"))
+async def cmd_subscribers(message: Message) -> None:
+    """Сколько человек получили бесплатный гайд (админ)."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("\u26a0\ufe0f Эта команда только для админа.")
+        return
+    try:
+        count = await database.get_subscriber_count(DB_PATH)
+    except Exception:
+        logger.exception("Не удалось получить число подписчиков")
+        await message.answer("\u274c Не удалось прочитать базу подписчиков.")
+        return
+    await message.answer(f"\U0001f465 Получили бесплатный гайд: <b>{count}</b>",
+                         parse_mode="HTML")
 
 
 def _rubric_lines(types_map) -> str:

@@ -160,6 +160,29 @@ class FakeBot:
         return None
 
 
+class FakeUser:
+    id = 555
+    username = "tester"
+    first_name = "Test"
+
+
+class FakeMessage:
+    """Minimal Message stand-in that records what the handler sends."""
+
+    def __init__(self):
+        self.from_user = FakeUser()
+        self.text = "/start"
+        self.answers = []
+        self.documents = []
+        self.bot = None
+
+    async def answer(self, text=None, **kwargs):
+        self.answers.append({"text": text, **kwargs})
+
+    async def answer_document(self, document=None, **kwargs):
+        self.documents.append({"document": document, **kwargs})
+
+
 async def main() -> int:
     print("1. Prompt and content-type wiring")
     for key in CONTENT_TYPES:
@@ -408,6 +431,65 @@ async def main() -> int:
     bot = FakeBot()
     await sched.send_post(bot, "micro_protocol", GOOD_POST, with_cta=False, with_buttons=True)
     check("plain scheduled post also has no keyboard", bot.messages[0]["reply_markup"] is None)
+
+    print("\n16. Воронка: /start выдаёт гайд и три кнопки")
+    import database
+    import handlers as handlers_module
+
+    check("PDF гайда существует", os.path.exists(config.PDF_PATH), config.PDF_PATH)
+
+    guide_kb = config.build_lead_magnet_keyboard()
+    guide_rows = guide_kb.inline_keyboard if guide_kb else []
+    check("под гайдом три кнопки", len(guide_rows) == 3, str(len(guide_rows)))
+    labels = [row[0].text for row in guide_rows]
+    urls = [row[0].url for row in guide_rows]
+    check("первая кнопка — бесплатный канал", "Бесплатный канал" in labels[0])
+    check("вторая кнопка — закрытый канал с ценой",
+          "Закрытый канал" in labels[1] and bool(config.PAID_CHANNEL_PRICE))
+    check("третья кнопка — нейрогайд с ценой",
+          "нейрогайд" in labels[2].lower() and bool(config.NEUROGUIDE_PRICE))
+    check("кнопки ведут на разные цели", len(set(urls)) == 3, str(urls))
+
+    db_file = os.path.join(STATE_DIR, "subscribers_test.db")
+    if os.path.exists(db_file):
+        os.remove(db_file)
+
+    real_db_path = config.DB_PATH
+    handlers_module.DB_PATH = db_file
+    try:
+        await database.init_db(db_file)
+
+        message = FakeMessage()
+        await handlers_module.cmd_start(message)
+
+        check("гайд отправлен документом", len(message.documents) == 1)
+        check("есть приветствие перед гайдом", len(message.answers) == 1)
+        check("подпись гайда упоминает Нейро-Стек",
+              "Нейро-Стек" in (message.documents[0].get("caption") or ""))
+        check("к гайду прикреплены кнопки",
+              message.documents[0].get("reply_markup") is not None)
+        check("подписчик записан в базу",
+              await database.get_subscriber_count(db_file) == 1)
+
+        # Повторный /start не должен создавать дубль
+        await handlers_module.cmd_start(FakeMessage())
+        check("повторный /start не дублирует подписчика",
+              await database.get_subscriber_count(db_file) == 1)
+
+        # Отсутствующий PDF не должен ронять бота
+        handlers_module.PDF_PATH = os.path.join(STATE_DIR, "нет-такого.pdf")
+        broken = FakeMessage()
+        await handlers_module.cmd_start(broken)
+        check("без PDF бот отвечает и не падает",
+              len(broken.answers) == 1 and not broken.documents)
+    finally:
+        handlers_module.DB_PATH = real_db_path
+        handlers_module.PDF_PATH = config.PDF_PATH
+
+    print("\n17. Один бот на один токен")
+    check("описание токена не падает", bool(config.describe_token(config.BOT_TOKEN)))
+    check("чужой токен описывается отдельно",
+          "id 123" in config.describe_token("123:abc"))
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:

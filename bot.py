@@ -5,8 +5,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import (
-    BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
-    PREMIUM_POST_TIMES, STARTUP_POST, check_shared_bot_token,
+    BOT_TOKEN, CHANNEL_ID, DB_PATH, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
+    PREMIUM_POST_TIMES, STARTUP_POST, describe_token,
 )
 from handlers import router
 from scheduler import setup_scheduler
@@ -25,9 +25,7 @@ async def main() -> None:
         raise RuntimeError("CHANNEL_ID is not set in .env")
 
     # Fail fast instead of silently stealing /start from the funnel bot.
-    token_problem = check_shared_bot_token(BOT_TOKEN)
-    if token_problem:
-        raise RuntimeError(token_problem)
+    logger.info("Запускаюсь на %s", describe_token(BOT_TOKEN))
 
     session = None
     if PROXY_URL:
@@ -37,6 +35,13 @@ async def main() -> None:
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
     dp.include_router(router)
+
+    # База подписчиков для выдачи бесплатного гайда по /start
+    from database import init_db
+    try:
+        await init_db(DB_PATH)
+    except Exception:
+        logger.exception("Не удалось подготовить базу подписчиков")
 
     setup_scheduler(bot)
     logger.info("Bot started. Channel: %s, schedule: %s", CHANNEL_ID, POST_TIMES)

@@ -40,6 +40,36 @@ BOT_LINK = f"https://t.me/{BOT_USERNAME}"
 # Ссылка на бесплатный канал — для кнопки под постами.
 CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/ruspectrmind")
 
+# ---- Лид-магнит: бесплатный PDF выдаётся по /start -------------------------
+PDF_PATH = os.getenv("PDF_PATH", "freeguide.pdf")
+DB_PATH = os.getenv("DB_PATH", "spectrmind.db")
+
+LEAD_MAGNET_CAPTION = (
+    "\U0001f9e0 Твой бесплатный гайд <b>«Нейро-Стек»</b> — 5 протоколов для апгрейда мозга.\n\n"
+    "\U0001f447 Забирай, сохраняй и применяй!\n\n"
+    "Хочешь больше? Закрытый канал + полный нейрогайд — кнопки ниже."
+)
+
+
+def build_lead_magnet_keyboard():
+    """Кнопки под бесплатным гайдом: канал, закрытый канал, полный нейрогайд."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    rows = []
+    if CHANNEL_LINK:
+        rows.append([InlineKeyboardButton(text="\U0001f4da Бесплатный канал", url=CHANNEL_LINK)])
+    if PAID_CHANNEL_LINK:
+        label = "\U0001f512 Закрытый канал"
+        if PAID_CHANNEL_PRICE:
+            label += f" {PAID_CHANNEL_PRICE}"
+        rows.append([InlineKeyboardButton(text=label, url=PAID_CHANNEL_LINK)])
+    if NEUROGUIDE_LINK:
+        label = "\U0001f9e0 Полный нейрогайд"
+        if NEUROGUIDE_PRICE:
+            label += f" {NEUROGUIDE_PRICE}"
+        rows.append([InlineKeyboardButton(text=label, url=NEUROGUIDE_LINK)])
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
 # Прямые платёжные ссылки. Если пусто — соответствующая кнопка в CTA не показывается.
 PAID_CHANNEL_LINK = os.getenv("PAID_CHANNEL_LINK", "")   # закрытый канал, Робокасса
 PAID_CHANNEL_PRICE = os.getenv("PAID_CHANNEL_PRICE", "")
@@ -92,39 +122,24 @@ def get_cta_text(index: int = 0) -> str:
     return variant.format(username=BOT_USERNAME)
 
 
-# Позволить боту работать на токене бота-воронки (только осознанно).
-ALLOW_SHARED_BOT_TOKEN = os.getenv("ALLOW_SHARED_BOT_TOKEN", "false").strip().lower() in ("true", "1", "yes")
-
-# Кнопки под постами ведут в бота-воронку. Если контент-бот запущен на ЕГО
-# токене, оба процесса поллят один и тот же бот: Telegram отдаёт апдейт тому,
-# кто запросил первым, и часть людей вместо гайда получает ответ контент-бота.
-# Проверка ниже ловит это до старта, потому что молча это ломает продажи.
-LOCKED_TOKENS = [
-    ("8808411768", BOT_USERNAME),
-]
+# Раньше воронка и автопостинг были двумя разными процессами на одном токене,
+# и они перехватывали друг у друга команду /start. Теперь это один бот:
+# он и гайд выдаёт, и посты публикует. Поэтому совпадение токена с ботом-воронкой
+# — норма, и проверка только пишет предупреждение в лог, если вы запустили
+# ВТОРОЙ процесс на том же токене.
+FUNNEL_BOT_ID = "8808411768"
 
 
-def check_shared_bot_token(token: str) -> str:
-    """Return an error message if the token belongs to the funnel bot.
-
-    An empty string means the token is fine. The funnel bot is the one users are
-    sent to from post buttons, so the content bot must never poll it.
-    """
-    if ALLOW_SHARED_BOT_TOKEN:
-        return ""
+def describe_token(token: str) -> str:
+    """Короткое описание токена для лога: какой бот и не запущен ли второй процесс."""
     bot_id = token.split(":", 1)[0].strip() if ":" in token else ""
-    for locked_id, username in LOCKED_TOKENS:
-        if bot_id == locked_id:
-            return (
-                f"BOT_TOKEN принадлежит боту @{username} (id {locked_id}) — это бот-воронка, "
-                f"в которого ведут кнопки под постами. Два процесса на одном токене "
-                f"перехватывают друг у друга команду /start, и люди вместо гайда получают "
-                f"ответ контент-бота.\n"
-                f"Создайте отдельного бота для контента через @BotFather (/newbot) и укажите "
-                f"его токен в BOT_TOKEN. Если совпадение осознанное — "
-                f"ALLOW_SHARED_BOT_TOKEN=true."
-            )
-    return ""
+    if bot_id == FUNNEL_BOT_ID:
+        return (
+            f"токен бота @{BOT_USERNAME} (id {bot_id}) — основного бота с воронкой. "
+            f"Это ожидаемо. Убедитесь, что на этом токене запущен ТОЛЬКО один процесс "
+            f"этого бота, иначе они будут перехватывать друг у друга /start."
+        )
+    return f"токен бота id {bot_id or '?'}"
 
 # Fallback models, used when the primary one fails or returns nothing.
 # These were verified as dead on the production server and were removed:
