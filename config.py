@@ -91,6 +91,41 @@ def get_cta_text(index: int = 0) -> str:
     variant = CTA_VARIANTS[index % len(CTA_VARIANTS)]
     return variant.format(username=BOT_USERNAME)
 
+
+# Позволить боту работать на токене бота-воронки (только осознанно).
+ALLOW_SHARED_BOT_TOKEN = os.getenv("ALLOW_SHARED_BOT_TOKEN", "false").strip().lower() in ("true", "1", "yes")
+
+# Кнопки под постами ведут в бота-воронку. Если контент-бот запущен на ЕГО
+# токене, оба процесса поллят один и тот же бот: Telegram отдаёт апдейт тому,
+# кто запросил первым, и часть людей вместо гайда получает ответ контент-бота.
+# Проверка ниже ловит это до старта, потому что молча это ломает продажи.
+LOCKED_TOKENS = [
+    ("8808411768", BOT_USERNAME),
+]
+
+
+def check_shared_bot_token(token: str) -> str:
+    """Return an error message if the token belongs to the funnel bot.
+
+    An empty string means the token is fine. The funnel bot is the one users are
+    sent to from post buttons, so the content bot must never poll it.
+    """
+    if ALLOW_SHARED_BOT_TOKEN:
+        return ""
+    bot_id = token.split(":", 1)[0].strip() if ":" in token else ""
+    for locked_id, username in LOCKED_TOKENS:
+        if bot_id == locked_id:
+            return (
+                f"BOT_TOKEN принадлежит боту @{username} (id {locked_id}) — это бот-воронка, "
+                f"в которого ведут кнопки под постами. Два процесса на одном токене "
+                f"перехватывают друг у друга команду /start, и люди вместо гайда получают "
+                f"ответ контент-бота.\n"
+                f"Создайте отдельного бота для контента через @BotFather (/newbot) и укажите "
+                f"его токен в BOT_TOKEN. Если совпадение осознанное — "
+                f"ALLOW_SHARED_BOT_TOKEN=true."
+            )
+    return ""
+
 # Fallback models, used when the primary one fails or returns nothing.
 # These were verified as dead on the production server and were removed:
 #   deepseek/deepseek-v4-flash     -> ответ 200 без текста, валил генерацию

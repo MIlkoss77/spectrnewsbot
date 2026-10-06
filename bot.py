@@ -6,7 +6,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import (
     BOT_TOKEN, CHANNEL_ID, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
-    PREMIUM_POST_TIMES, STARTUP_POST,
+    PREMIUM_POST_TIMES, STARTUP_POST, check_shared_bot_token,
 )
 from handlers import router
 from scheduler import setup_scheduler
@@ -23,6 +23,11 @@ async def main() -> None:
         raise RuntimeError("BOT_TOKEN is not set in .env")
     if not CHANNEL_ID:
         raise RuntimeError("CHANNEL_ID is not set in .env")
+
+    # Fail fast instead of silently stealing /start from the funnel bot.
+    token_problem = check_shared_bot_token(BOT_TOKEN)
+    if token_problem:
+        raise RuntimeError(token_problem)
 
     session = None
     if PROXY_URL:
