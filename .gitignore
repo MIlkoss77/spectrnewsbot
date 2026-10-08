@@ -14,3 +14,6 @@ spectrmind.db
 
 # offline self-check scratch state
 .selfcheck_state/
+
+# черновики сравнения моделей
+model_comparison/
