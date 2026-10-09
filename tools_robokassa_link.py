@@ -31,10 +31,23 @@ load_dotenv(ENV_FILE)
 PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
 ERROR_MARKERS = ("Merchant/Error", "incomprehensible situation", "Page Not Found")
 
-# Имена, под которыми логин и пароль могут лежать в .env. Первый вариант
-# совпадает с сайтом, второй — с прежним именем в этом инструменте.
-LOGIN_KEYS = ("ROBOKASSA_MERCHANT_LOGIN", "ROBOKASSA_LOGIN")
-PASSWORD_KEYS = ("ROBOKASSA_PASSWORD_1", "ROBOKASSA_PASSWORD1")
+# Имена, под которыми логин и пароль могут лежать в .env. Варианты с сайта
+# (spectrmind.ru) идут первыми, дальше — возможные сокращения.
+LOGIN_KEYS = (
+    "ROBOKASSA_MERCHANT_LOGIN",
+    "ROBOKASSA_LOGIN",
+    "MERCHANT_LOGIN",
+    "ROBOKASSA_MERCHANT",
+)
+PASSWORD_KEYS = (
+    "ROBOKASSA_PASSWORD_1",
+    "ROBOKASSA_PASSWORD1",
+    "PASSWORD_1",
+    "ROBOKASSA_PASS1",
+)
+
+# Значения, которые никогда не бывают рабочим логином магазина.
+INVALID_LOGINS = {"", "none", "null", "demo", "test", "your_login", "xxx"}
 
 
 def read_setting(keys, prompt: str = "") -> str:
@@ -86,6 +99,11 @@ def build_link(login: str, out_sum: str, inv_id: str, password1: str,
 
 async def probe(url: str) -> str:
     """Проверить ссылку запросом: заглушка или форма оплаты."""
+    # Отсутствие заглушки ещё не значит, что ссылка рабочая: с логином None
+    # Robokassa отдаёт страницу, поэтому параметры проверяются отдельно.
+    if "MerchantLogin=None" in url or "MerchantLogin=null" in url:
+        return "❌ в ссылке MerchantLogin=None — логин магазина не задан в .env"
+
     try:
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -98,8 +116,15 @@ async def probe(url: str) -> str:
         return (f"❌ ЗАГЛУШКА Robokassa ({hit!r}) по адресу {resp.url}\n"
                 f"   Причины: неверный MerchantLogin, неверный Пароль №1, "
                 f"магазин не активирован (ошибка 25/26/29) или услуга не подключена.")
+
+    final_host = resp.url.host or ""
+    if "robokassa.kz" in final_host:
+        return (f"⚠️ запрос ушёл на {final_host} — это казахстанский портал Robokassa.\n"
+                f"   Для российского магазина карты могут не приниматься: "
+                f"проверьте, что магазин заведён на robokassa.ru")
+
     if "SignatureValue" in body or "подпис" in body.lower():
-        return f"⚠️ HTTP {resp.status_code}: страница оплаты ответила, но подпись не принята"
+        return f"⚠️ HTTP {resp.status_code}: страница ответила, но подпись не принята"
     return f"✅ HTTP {resp.status_code}: похоже на форму оплаты ({resp.url})"
 
 
@@ -112,12 +137,19 @@ def main() -> int:
     parser.add_argument("--recurring", action="store_true",
                         help="Подписка: добавить Recurring=true (нужна услуга РП)")
     parser.add_argument("--no-probe", action="store_true", help="Не проверять запросом")
+    parser.add_argument("--allow-demo", action="store_true",
+                        help="Разрешить логин demo (для проверки самого инструмента)")
     args = parser.parse_args()
 
     login = (args.login or read_setting(LOGIN_KEYS)).strip()
-    if not login:
-        print("Не задан логин магазина.")
-        print(f"Добавьте в .env: {LOGIN_KEYS[0]}=Spectrmind")
+    # Логин вида None/пусто даёт заведомо нерабочую ссылку, и проверка
+    # запросом этого не показывает: Robokassa отдаёт страницу, а не заглушку.
+    invalid = INVALID_LOGINS - {"demo"} if args.allow_demo else INVALID_LOGINS
+    if login.lower() in invalid:
+        print(f"Логин магазина не задан (получено: {login!r}).")
+        print("Добавьте в .env строку с логином из технических настроек Robokassa,")
+        print("на сайте он называется ROBOKASSA_MERCHANT_LOGIN=Spectrmind")
+        print("Проверьте, что именно там есть: grep -iE 'robo|merchant' .env")
         return 2
 
     password1 = read_setting(PASSWORD_KEYS)
