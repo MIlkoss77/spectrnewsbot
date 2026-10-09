@@ -7,10 +7,11 @@
 Инструмент ничего не отправляет в канал, только печатает ссылку и проверяет,
 что Robokassa не отвечает страницей-заглушкой.
 
-    python3 tools_robokassa_link.py --login my_shop --sum 1990 --inv-id 1001
+    python3 tools_robokassa_link.py --sum 1990 --inv-id 1001
 
-Пароль №1 не передавайте аргументом (он попадёт в историю команд). Введите его
-по запросу или задайте в .env как ROBOKASSA_PASSWORD1.
+Логин и пароль берутся из .env, имена совпадают с сайтом
+(ROBOKASSA_MERCHANT_LOGIN, ROBOKASSA_PASSWORD_1), поэтому вводить их в
+терминале не нужно. Если в .env их нет, пароль будет запрошен молча.
 """
 import argparse
 import getpass
@@ -22,8 +23,32 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import httpx
 
+from dotenv import load_dotenv
+
+ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(ENV_FILE)
+
 PAY_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
 ERROR_MARKERS = ("Merchant/Error", "incomprehensible situation", "Page Not Found")
+
+# Имена, под которыми логин и пароль могут лежать в .env. Первый вариант
+# совпадает с сайтом, второй — с прежним именем в этом инструменте.
+LOGIN_KEYS = ("ROBOKASSA_MERCHANT_LOGIN", "ROBOKASSA_LOGIN")
+PASSWORD_KEYS = ("ROBOKASSA_PASSWORD_1", "ROBOKASSA_PASSWORD1")
+
+
+def read_setting(keys, prompt: str = "") -> str:
+    """Взять значение из окружения по любому из имён, иначе спросить молча."""
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    if not prompt:
+        return ""
+    try:
+        return getpass.getpass(prompt).strip()
+    except Exception:
+        return ""
 
 
 def build_signature(login: str, out_sum: str, inv_id: str, password1: str,
@@ -80,7 +105,7 @@ async def probe(url: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ссылка на оплату Robokassa")
-    parser.add_argument("--login", required=True, help="MerchantLogin из кабинета")
+    parser.add_argument("--login", help="MerchantLogin; по умолчанию из .env")
     parser.add_argument("--sum", required=True, help="Сумма, например 1990")
     parser.add_argument("--inv-id", default="1", help="Номер заказа (уникальный)")
     parser.add_argument("--description", default="", help="Название товара")
@@ -89,15 +114,19 @@ def main() -> int:
     parser.add_argument("--no-probe", action="store_true", help="Не проверять запросом")
     args = parser.parse_args()
 
-    password1 = os.getenv("ROBOKASSA_PASSWORD1", "")
+    login = (args.login or read_setting(LOGIN_KEYS)).strip()
+    if not login:
+        print("Не задан логин магазина.")
+        print(f"Добавьте в .env: {LOGIN_KEYS[0]}=Spectrmind")
+        return 2
+
+    password1 = read_setting(PASSWORD_KEYS)
     if not password1:
-        try:
-            password1 = getpass.getpass("Пароль №1 из технических настроек: ")
-        except Exception:
-            print("Пароль не введён. Задайте ROBOKASSA_PASSWORD1 в .env.")
-            return 2
+        password1 = read_setting(PASSWORD_KEYS, "Пароль №1 из технических настроек: ")
     if not password1:
-        print("Пароль пустой.")
+        print("Пароль №1 не найден.")
+        print(f"Добавьте в .env: {PASSWORD_KEYS[0]}=<пароль из кабинета Robokassa>")
+        print("Так значение не попадёт ни в историю команд, ни в список процессов.")
         return 2
 
     out_sum = f"{float(args.sum):.2f}"
