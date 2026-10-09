@@ -7,6 +7,7 @@ Usage:
     python tools_selfcheck.py
 """
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -490,6 +491,59 @@ async def main() -> int:
     check("описание токена не падает", bool(config.describe_token(config.BOT_TOKEN)))
     check("чужой токен описывается отдельно",
           "id 123" in config.describe_token("123:abc"))
+
+    print("\n18. Robokassa: подпись по документации и уникальность InvId")
+    # Проверяем формулу на известных значениях, независимо от .env на машине.
+    real = (config.ROBOKASSA_MERCHANT_LOGIN, config.ROBOKASSA_PASSWORD_1)
+    config.ROBOKASSA_MERCHANT_LOGIN = "Spectrmind"
+    config.ROBOKASSA_PASSWORD_1 = "testpassword12345678"
+    try:
+        from urllib.parse import parse_qs, urlparse
+
+        link = config.build_robokassa_link(
+            "1990.00", "Полный нейрогайд", invoice_id=1001, user_id=555
+        )
+        query = parse_qs(urlparse(link).query)
+        expected = hashlib.md5(
+            b"Spectrmind:1990.00:1001:testpassword12345678:Shp_user=555"
+        ).hexdigest()
+        check("подпись разового платежа совпадает с документацией",
+              query.get("SignatureValue", [""])[0] == expected)
+        check("сумма приведена к формату Robokassa", query.get("OutSum", [""])[0] == "1990.00")
+        check("номер заказа в ссылке", query.get("InvId", [""])[0] == "1001")
+        check("Shp_user передаётся для выдачи доступа",
+              query.get("Shp_user", [""])[0] == "555")
+        check("ссылка ведёт на форму оплаты",
+              link.startswith("https://auth.robokassa.ru/Merchant/Index.aspx?"))
+
+        sub = config.build_robokassa_link(
+            "990.00", "SPECTR CLUB", invoice_id=2002, user_id=555, recurring=True
+        )
+        sub_query = parse_qs(urlparse(sub).query)
+        expected_sub = hashlib.md5(
+            b"Spectrmind:990.00:2002:Recurring=true:testpassword12345678:Shp_user=555"
+        ).hexdigest()
+        check("подпись подписки учитывает Recurring",
+              sub_query.get("SignatureValue", [""])[0] == expected_sub)
+        check("подписка помечена как recurring",
+              sub_query.get("Recurring", [""])[0] == "true")
+
+        plain = config.build_robokassa_link("1990.00", "Гайд", invoice_id=3003)
+        plain_query = parse_qs(urlparse(plain).query)
+        check("без user_id Shp_user не передаётся", "Shp_user" not in plain_query)
+
+        ids = [config._next_invoice_id() for _ in range(5000)]
+        check("InvId уникален без повторов", len(set(ids)) == len(ids),
+              f"{len(set(ids))}/{len(ids)} уникальных")
+        check("InvId монотонно растёт", all(b > a for a, b in zip(ids, ids[1:])))
+        check("InvId в лимите Robokassa", max(ids) < 2 ** 63)
+
+        keyboard = config.build_lead_magnet_keyboard(user_id=555)
+        urls = [row[0].url for row in keyboard.inline_keyboard]
+        check("кнопка оплаты содержит Shp_user",
+              any("Shp_user=555" in url for url in urls))
+    finally:
+        config.ROBOKASSA_MERCHANT_LOGIN, config.ROBOKASSA_PASSWORD_1 = real
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:

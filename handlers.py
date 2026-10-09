@@ -82,7 +82,7 @@ async def cmd_start(message: Message) -> None:
     await message.answer_document(
         document=FSInputFile(PDF_PATH),
         caption=LEAD_MAGNET_CAPTION,
-        reply_markup=build_lead_magnet_keyboard(),
+        reply_markup=build_lead_magnet_keyboard(user_id=user.id),
         parse_mode="HTML",
     )
     logger.info("Гайд выдан пользователю %s (@%s)", user.id, user.username or "-")
