@@ -52,16 +52,31 @@ def _is_admin(user_id: int) -> bool:
     return ADMIN_ID == 0 or user_id == ADMIN_ID
 
 
+def _start_source(message: Message) -> str:
+    """Метка источника из ссылки вида t.me/bot?start=ig.
+
+    Telegram присылает её как текст команды: «/start ig». Без метки — пустая
+    строка, и человек попадёт в группу «без метки».
+    """
+    text = (message.text or "").strip()
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        return ""
+    return parts[1].strip()[:64]
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     """Приветствие + выдача бесплатного гайда с кнопками покупки."""
     user = message.from_user
+    source = _start_source(message)
     try:
         await database.add_subscriber(
             DB_PATH,
             user_id=user.id,
             username=user.username,
             first_name=user.first_name,
+            source=source,
         )
     except Exception:
         # Учёт подписчика не должен мешать выдаче гайда.
@@ -85,23 +100,33 @@ async def cmd_start(message: Message) -> None:
         reply_markup=build_lead_magnet_keyboard(user_id=user.id),
         parse_mode="HTML",
     )
-    logger.info("Гайд выдан пользователю %s (@%s)", user.id, user.username or "-")
+    logger.info("Гайд выдан пользователю %s (@%s), источник: %s",
+                user.id, user.username or "-", source or "без метки")
 
 
 @router.message(Command("subscribers"))
 async def cmd_subscribers(message: Message) -> None:
-    """Сколько человек получили бесплатный гайд (админ)."""
+    """Сколько человек получили бесплатный гайд и откуда они пришли (админ)."""
     if not _is_admin(message.from_user.id):
         await message.answer("\u26a0\ufe0f Эта команда только для админа.")
         return
     try:
         count = await database.get_subscriber_count(DB_PATH)
+        stats = await database.get_source_stats(DB_PATH)
     except Exception:
         logger.exception("Не удалось получить число подписчиков")
         await message.answer("\u274c Не удалось прочитать базу подписчиков.")
         return
-    await message.answer(f"\U0001f465 Получили бесплатный гайд: <b>{count}</b>",
-                         parse_mode="HTML")
+
+    lines = [f"\U0001f465 Получили бесплатный гайд: <b>{count}</b>"]
+    if stats:
+        lines.append("\n<b>Откуда пришли:</b>")
+        for row in stats:
+            lines.append(f"  {row['source']} — {row['count']}")
+        lines.append(
+            "\n<i>Метка берётся из ссылки: t.me/spectrnewsbot?start=ig</i>"
+        )
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 def _rubric_lines(types_map) -> str:

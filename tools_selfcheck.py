@@ -162,17 +162,18 @@ class FakeBot:
 
 
 class FakeUser:
-    id = 555
-    username = "tester"
-    first_name = "Test"
+    def __init__(self, user_id=555, username="tester", first_name="Test"):
+        self.id = user_id
+        self.username = username
+        self.first_name = first_name
 
 
 class FakeMessage:
     """Minimal Message stand-in that records what the handler sends."""
 
-    def __init__(self):
-        self.from_user = FakeUser()
-        self.text = "/start"
+    def __init__(self, user_id=555, text="/start"):
+        self.from_user = FakeUser(user_id)
+        self.text = text
         self.answers = []
         self.documents = []
         self.bot = None
@@ -544,6 +545,58 @@ async def main() -> int:
               any("Shp_user=555" in url for url in urls))
     finally:
         config.ROBOKASSA_MERCHANT_LOGIN, config.ROBOKASSA_PASSWORD_1 = real
+
+    print("\n19. Источник подписчика из ссылки ?start=ig")
+    db_file2 = os.path.join(STATE_DIR, "sources_test.db")
+    if os.path.exists(db_file2):
+        os.remove(db_file2)
+    handlers_module.DB_PATH = db_file2
+    try:
+        await database.init_db(db_file2)
+
+        class SourcedMessage(FakeMessage):
+            def __init__(self, text, user_id=555):
+                super().__init__(user_id=user_id, text=text)
+
+        check("метка разбирается", handlers_module._start_source(
+            SourcedMessage("/start ig")) == "ig")
+        check("метка с подчёркиванием", handlers_module._start_source(
+            SourcedMessage("/start ig_bio")) == "ig_bio")
+        check("без метки — пусто", handlers_module._start_source(
+            SourcedMessage("/start")) == "")
+        check("лишние пробелы обрезаются", handlers_module._start_source(
+            SourcedMessage("/start   yt  ")) == "yt")
+        check("длинная метка обрезается", len(handlers_module._start_source(
+            SourcedMessage("/start " + "x" * 200))) == 64)
+
+        await handlers_module.cmd_start(SourcedMessage("/start ig", user_id=1001))
+        await handlers_module.cmd_start(SourcedMessage("/start yt", user_id=1002))
+        stats = await database.get_source_stats(db_file2)
+        by_source = {row["source"]: row["count"] for row in stats}
+        check("инста учтена", by_source.get("ig") == 1, str(by_source))
+        check("ютуб учтён", by_source.get("yt") == 1, str(by_source))
+
+        # Повторный /start без метки не должен затирать известный источник
+        await handlers_module.cmd_start(SourcedMessage("/start", user_id=1003))
+        stats = await database.get_source_stats(db_file2)
+        by_source = {row["source"]: row["count"] for row in stats}
+        check("источник не затирается пустой меткой",
+              by_source.get("ig") == 1 and by_source.get("без метки") == 1,
+              str(by_source))
+        check("подписчиков всего трое",
+              await database.get_subscriber_count(db_file2) == 3)
+
+        # Тот же человек с меткой: запись обновляется, а не дублируется
+        await handlers_module.cmd_start(SourcedMessage("/start reels", user_id=1003))
+        check("повторный вход не создаёт дубль",
+              await database.get_subscriber_count(db_file2) == 3)
+        stats = await database.get_source_stats(db_file2)
+        by_source = {row["source"]: row["count"] for row in stats}
+        check("известный источник обновляется на новый",
+              by_source.get("reels") == 1 and "без метки" not in by_source,
+              str(by_source))
+    finally:
+        handlers_module.DB_PATH = real_db_path
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
