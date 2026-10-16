@@ -90,8 +90,8 @@ async def cmd_start(message: Message) -> None:
         return
 
     await message.answer(
-        "\U0001f44b Привет! Я — бот канала <b>SpectrMind</b>.\n\n"
-        "Забирай свой бесплатный гайд \U0001f447",
+        "Твой доступ к базовому протоколу <b>SpectrMind</b> открыт.\n\n"
+        "Внутри — выжимка без воды на 5 минут чтения. Скачивай файл выше \U0001f446",
         parse_mode="HTML",
     )
     await message.answer_document(
