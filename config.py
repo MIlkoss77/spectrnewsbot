@@ -41,13 +41,18 @@ BOT_LINK = f"https://t.me/{BOT_USERNAME}"
 CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/ruspectrmind")
 
 # ---- Лид-магнит: бесплатный PDF выдаётся по /start -------------------------
-PDF_PATH = os.getenv("PDF_PATH", "freeguide.pdf")
+PDF_PATH = os.getenv("PDF_PATH", "SPECTR_Prefrontal_Protocol.pdf")
+if not os.path.exists(PDF_PATH) and os.path.exists("freeguide.pdf"):
+    PDF_PATH = "freeguide.pdf"
 DB_PATH = os.getenv("DB_PATH", "spectrmind.db")
 
 LEAD_MAGNET_CAPTION = (
-    "\U0001f9e0 Твой бесплатный гайд <b>«Нейро-Стек»</b> — 5 протоколов для апгрейда мозга.\n\n"
-    "\U0001f447 Забирай, сохраняй и применяй!\n\n"
-    "Хочешь больше? Закрытый канал + полный нейрогайд — кнопки ниже."
+    "\U0001f9e0 Твой протокол <b>«Управление префронтальной корой»</b> готов к скачиванию.\n\n"
+    "Внутри — прикладная нейробиология без эзотерики и воды:\n"
+    "• Механика дофаминовой ямы и рецепторов D1/D2\n"
+    "• Протокол «Золотые 90 минут» для старта дня без тумана\n"
+    "• Фильтр HALT и правило 120 секунд для спасения энергии\n\n"
+    "\u23f1 Время чтения: всего 4 минуты. Скачивай файл выше \U0001f446"
 )
 
 

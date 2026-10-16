@@ -466,8 +466,8 @@ async def main() -> int:
 
         check("гайд отправлен документом", len(message.documents) == 1)
         check("есть приветствие перед гайдом", len(message.answers) == 1)
-        check("подпись гайда упоминает Нейро-Стек",
-              "Нейро-Стек" in (message.documents[0].get("caption") or ""))
+        check("подпись гайда упоминает протокол",
+              "Управление префронтальной корой" in (message.documents[0].get("caption") or ""))
         check("к гайду прикреплены кнопки",
               message.documents[0].get("reply_markup") is not None)
         check("подписчик записан в базу",

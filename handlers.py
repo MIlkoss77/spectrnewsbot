@@ -90,12 +90,11 @@ async def cmd_start(message: Message) -> None:
         return
 
     await message.answer(
-        "Твой доступ к базовому протоколу <b>SpectrMind</b> открыт.\n\n"
-        "Внутри — выжимка без воды на 5 минут чтения. Скачивай файл выше \U0001f446",
+        "Твой доступ к базовому протоколу <b>SpectrMind</b> открыт.",
         parse_mode="HTML",
     )
     await message.answer_document(
-        document=FSInputFile(PDF_PATH),
+        document=FSInputFile(PDF_PATH, filename="SPECTR_Prefrontal_Protocol.pdf"),
         caption=LEAD_MAGNET_CAPTION,
         reply_markup=build_lead_magnet_keyboard(user_id=user.id),
         parse_mode="HTML",
