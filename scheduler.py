@@ -19,6 +19,7 @@ from config import (
     PAID_CHANNEL_LINK,
     PAID_CHANNEL_PRICE,
     POST_TIMES,
+    PREMIUM_CHANNEL_ID,
     PREMIUM_POST_TIMES,
     SHOW_CHANNEL_BUTTON,
     SHOW_DIRECT_PAY_BUTTONS,
@@ -244,10 +245,15 @@ async def post_to_channel(bot) -> None:
 
 
 async def post_to_premium_channel(bot) -> None:
-    """Generate premium content and send it to admin's DM."""
+    """Generate premium content and post it to the premium channel or admin DM."""
     now = datetime.now(MSK)
     hour = now.hour
-    logger.info("Premium scheduled post triggered at %s MSK", now.strftime("%H:%M"))
+    target_chat = PREMIUM_CHANNEL_ID or ADMIN_ID
+    if not target_chat:
+        logger.warning("Neither PREMIUM_CHANNEL_ID nor ADMIN_ID is set, skipping premium post")
+        return
+
+    logger.info("Premium scheduled post triggered at %s MSK for chat %s", now.strftime("%H:%M"), target_chat)
 
     try:
         content_type, text = await generate_for_premium_slot(hour)
@@ -256,14 +262,62 @@ async def post_to_premium_channel(bot) -> None:
         _write_premium_counter(counter)
 
         formatted_text = format_post_html(text)
-        try:
-            await bot.send_message(chat_id=ADMIN_ID, text=formatted_text, parse_mode="HTML")
-        except Exception:
-            await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode=None)
 
-        logger.info("Sent [%s] to admin DM successfully (post #%d)", content_type, counter)
+        # Генерация брендового визуала для премиум-поста
+        image_path = None
+        try:
+            image_path = await generate_post_image(text[:120], content_type)
+        except Exception as e:
+            logger.warning("Premium image generation skipped: %s", e)
+            image_path = None
+
+        if hasattr(bot, "send_photo") and image_path and os.path.exists(image_path):
+            try:
+                if len(formatted_text) <= 1024:
+                    photo = FSInputFile(image_path)
+                    await bot.send_photo(
+                        chat_id=target_chat,
+                        photo=photo,
+                        caption=formatted_text,
+                        parse_mode="HTML",
+                    )
+                    logger.info("Sent premium photo post to %s (post #%d)", target_chat, counter)
+                    return
+                else:
+                    split_idx = formatted_text[:1000].rfind("\n\n")
+                    if split_idx == -1:
+                        split_idx = formatted_text[:1000].rfind("\n")
+                    if split_idx == -1:
+                        split_idx = 1000
+
+                    caption_part = _balance_tags(formatted_text[:split_idx].strip())
+                    remainder_part = _balance_tags(formatted_text[split_idx:].strip())
+
+                    photo = FSInputFile(image_path)
+                    await bot.send_photo(
+                        chat_id=target_chat,
+                        photo=photo,
+                        caption=caption_part,
+                        parse_mode="HTML",
+                    )
+                    await bot.send_message(
+                        chat_id=target_chat,
+                        text=remainder_part,
+                        parse_mode="HTML",
+                    )
+                    logger.info("Sent split premium photo post to %s (post #%d)", target_chat, counter)
+                    return
+            except Exception as e:
+                logger.warning("Failed to send premium photo (%s), falling back to text...", e)
+
+        try:
+            await bot.send_message(chat_id=target_chat, text=formatted_text, parse_mode="HTML")
+        except Exception:
+            await bot.send_message(chat_id=target_chat, text=text, parse_mode=None)
+
+        logger.info("Sent [%s] to %s successfully (post #%d)", content_type, target_chat, counter)
     except Exception:
-        logger.exception("Failed to send premium post to admin DM")
+        logger.exception("Failed to send premium post to %s", target_chat)
 
 
 def setup_scheduler(bot) -> AsyncIOScheduler:
@@ -285,8 +339,9 @@ def setup_scheduler(bot) -> AsyncIOScheduler:
         )
         logger.info("Scheduled free channel post at %s MSK", time_str)
 
-    # Premium posts to admin DM (if ADMIN_ID configured)
-    if ADMIN_ID:
+    # Premium posts to premium channel or admin DM
+    target_chat = PREMIUM_CHANNEL_ID or ADMIN_ID
+    if target_chat:
         for time_str in PREMIUM_POST_TIMES:
             parts = time_str.split(":")
             hour, minute = int(parts[0]), int(parts[1])
@@ -299,9 +354,9 @@ def setup_scheduler(bot) -> AsyncIOScheduler:
                 name=f"Premium post at {time_str} MSK",
                 replace_existing=True,
             )
-            logger.info("Scheduled premium post (admin DM) at %s MSK", time_str)
+            logger.info("Scheduled premium post for %s at %s MSK", target_chat, time_str)
 
-    total_jobs = len(POST_TIMES) + (len(PREMIUM_POST_TIMES) if ADMIN_ID else 0)
+    total_jobs = len(POST_TIMES) + (len(PREMIUM_POST_TIMES) if target_chat else 0)
     scheduler.start()
     logger.info("Scheduler started with %d jobs", total_jobs)
     return scheduler
