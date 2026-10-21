@@ -18,6 +18,10 @@ spectrmind.db
 # model comparison drafts
 model_comparison/
 
+# generated post images cache
+content/post_images/*.jpg
+content/post_images/*.png
+
 # working artifacts of PDF builds: page renders, drafts, probes
 _probe_*.pdf
 page_*.png

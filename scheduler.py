@@ -4,7 +4,7 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -25,6 +25,8 @@ from config import (
     get_cta_text,
 )
 from content.generator import PollPost, generate_for_premium_slot, generate_for_slot
+from content.html_formatter import _balance_tags, format_post_html
+from content.image_generator import generate_post_image
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +110,14 @@ async def send_post(
     post,
     with_cta: bool,
     with_buttons: bool = True,
+    image_path: str | None = None,
 ) -> None:
     """Publish a generated post to the channel.
 
     Polls go out through send_poll so Telegram renders real answer buttons;
-    everything else is a plain text message. The CTA and the keyboard always
-    belong to the same message, so they are built together here.
+    regular posts are formatted as clean Telegram HTML with optional photo.
+    The CTA and the keyboard always belong to the same message, so they are
+    built together here.
     """
     keyboard = build_keyboard(with_pay_buttons=with_cta) if with_buttons else None
     cta = get_cta_text(_read_counter()) if with_cta else ""
@@ -137,10 +141,67 @@ async def send_post(
         logger.info("Poll posted: %r (%d options)", post.question[:60], len(post.options))
         return
 
-    text = f"{post}\n\n{cta}" if cta else post
-    await bot.send_message(
-        chat_id=CHANNEL_ID, text=text, parse_mode=None, reply_markup=keyboard
-    )
+    raw_text = f"{post}\n\n{cta}" if cta else str(post)
+    formatted_text = format_post_html(raw_text)
+
+    # 1. Если передано сгенерированное изображение и бот поддерживает send_photo
+    if hasattr(bot, "send_photo") and image_path and os.path.exists(image_path):
+        try:
+            if len(formatted_text) <= 1024:
+                # Весь текст помещается в подпись к фото
+                photo = FSInputFile(image_path)
+                await bot.send_photo(
+                    chat_id=CHANNEL_ID,
+                    photo=photo,
+                    caption=formatted_text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+                logger.info("Photo post published with HTML caption (%d chars)", len(formatted_text))
+                return
+            else:
+                # Текст длиннее 1024 символов: делим на тизер к фото + продолжение сообщением
+                split_idx = formatted_text[:1000].rfind("\n\n")
+                if split_idx == -1:
+                    split_idx = formatted_text[:1000].rfind("\n")
+                if split_idx == -1:
+                    split_idx = 1000
+
+                caption_part = _balance_tags(formatted_text[:split_idx].strip())
+                remainder_part = _balance_tags(formatted_text[split_idx:].strip())
+
+                photo = FSInputFile(image_path)
+                await bot.send_photo(
+                    chat_id=CHANNEL_ID,
+                    photo=photo,
+                    caption=caption_part,
+                    parse_mode="HTML",
+                )
+                await bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=remainder_part,
+                    parse_mode="HTML",
+                    reply_markup=keyboard,
+                )
+                logger.info(
+                    "Split photo post published: caption %d chars, text %d chars",
+                    len(caption_part),
+                    len(remainder_part),
+                )
+                return
+        except Exception as e:
+            logger.warning("Failed to send post with photo (%s), falling back to send_message...", e)
+
+    # 2. Текстовая отправка (без фото или при отказе отправки фото)
+    try:
+        await bot.send_message(
+            chat_id=CHANNEL_ID, text=formatted_text, parse_mode="HTML", reply_markup=keyboard
+        )
+    except Exception as e:
+        logger.warning("HTML parsing failed in send_message (%s), sending plain text...", e)
+        await bot.send_message(
+            chat_id=CHANNEL_ID, text=raw_text, parse_mode=None, reply_markup=keyboard
+        )
 
 
 async def post_to_channel(bot) -> None:
@@ -159,7 +220,24 @@ async def post_to_channel(bot) -> None:
         if with_cta:
             logger.info("CTA with purchase buttons attached (post #%d)", counter)
 
-        await send_post(bot, content_type, post, with_cta=with_cta)
+        # Генерация брендового визуала (для обычных постов, кроме опросов)
+        image_path = None
+        if not isinstance(post, PollPost):
+            try:
+                post_str = str(post)
+                lines = [l.strip() for l in post_str.splitlines() if l.strip()]
+                # Пропускаем служебный тег // РУБРИКА //
+                topic_hint = (
+                    lines[1]
+                    if len(lines) > 1 and lines[0].startswith("//")
+                    else (lines[0] if lines else "")
+                )
+                image_path = await generate_post_image(topic_hint or post_str[:120], content_type)
+            except Exception as e:
+                logger.warning("Image generation skipped gracefully: %s", e)
+                image_path = None
+
+        await send_post(bot, content_type, post, with_cta=with_cta, image_path=image_path)
         logger.info("Posted [%s] to channel successfully (post #%d)", content_type, counter)
     except Exception:
         logger.exception("Failed to post to channel")
@@ -177,7 +255,12 @@ async def post_to_premium_channel(bot) -> None:
         counter = _read_premium_counter() + 1
         _write_premium_counter(counter)
 
-        await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode=None)
+        formatted_text = format_post_html(text)
+        try:
+            await bot.send_message(chat_id=ADMIN_ID, text=formatted_text, parse_mode="HTML")
+        except Exception:
+            await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode=None)
+
         logger.info("Sent [%s] to admin DM successfully (post #%d)", content_type, counter)
     except Exception:
         logger.exception("Failed to send premium post to admin DM")
