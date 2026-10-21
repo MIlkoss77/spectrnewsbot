@@ -301,13 +301,7 @@ async def cmd_post(message: Message) -> None:
         if not isinstance(post, PollPost):
             try:
                 post_str = str(post)
-                lines = [l.strip() for l in post_str.splitlines() if l.strip()]
-                topic_hint = (
-                    lines[1]
-                    if len(lines) > 1 and lines[0].startswith("//")
-                    else (lines[0] if lines else "")
-                )
-                image_path = await generate_post_image(topic_hint or post_str[:120], ctype)
+                image_path = await generate_post_image(post_str[:500], ctype)
             except Exception as e_img:
                 logger.warning("Post image generation skipped: %s", e_img)
                 image_path = None
@@ -365,7 +359,7 @@ async def cmd_post_premium(message: Message) -> None:
         # Генерация изображения
         image_path = None
         try:
-            image_path = await generate_post_image(text[:120], ctype)
+            image_path = await generate_post_image(text[:500], ctype)
         except Exception as e:
             logger.warning("Premium image generation failed: %s", e)
 

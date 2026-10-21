@@ -242,14 +242,7 @@ async def post_to_channel(bot) -> None:
         if not isinstance(post, PollPost):
             try:
                 post_str = str(post)
-                lines = [l.strip() for l in post_str.splitlines() if l.strip()]
-                # Пропускаем служебный тег // РУБРИКА //
-                topic_hint = (
-                    lines[1]
-                    if len(lines) > 1 and lines[0].startswith("//")
-                    else (lines[0] if lines else "")
-                )
-                image_path = await generate_post_image(topic_hint or post_str[:120], content_type)
+                image_path = await generate_post_image(post_str[:500], content_type)
             except Exception as e:
                 logger.warning("Image generation skipped gracefully: %s", e)
                 image_path = None
@@ -282,7 +275,7 @@ async def post_to_premium_channel(bot) -> None:
         # Генерация брендового визуала для премиум-поста
         image_path = None
         try:
-            image_path = await generate_post_image(text[:120], content_type)
+            image_path = await generate_post_image(text[:500], content_type)
         except Exception as e:
             logger.warning("Premium image generation skipped: %s", e)
             image_path = None
