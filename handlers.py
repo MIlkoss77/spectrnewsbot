@@ -278,32 +278,36 @@ async def cmd_generate(message: Message) -> None:
             f"<b>\U0001f4dd Превью ({label}):</b>\n\n{_preview(ctype, post)}",
             parse_mode=None,
         )
-    except Exception:
+    except Exception as e:
         logger.exception("Generation failed")
-        await message.answer("\u274c Не удалось сгенерировать пост. Попробуй позже.")
+        await message.answer(f"❌ Ошибка генерации: {e}")
 
 
 @router.message(Command("post"))
 async def cmd_post(message: Message) -> None:
     if not _is_admin(message.from_user.id):
-        await message.answer("\u26a0\ufe0f Эта команда только для админа.")
+        await message.answer("⚠️ Эта команда только для админа.")
         return
 
     content_type, error = await _parse_requested_type(message, CONTENT_TYPES)
     if error:
         return
 
-    await message.answer("\u23f3 Генерирую и публикую...")
+    await message.answer("⏳ Генерирую и публикую в канал...")
 
     try:
         ctype, post = await generate_content(content_type)
         # Ручная публикация идёт как обычный пост; CTA добавляется расписанием.
         await send_post(message.bot, ctype, post, with_cta=False)
         label = CONTENT_TYPES[ctype].label
-        await message.answer(f"\u2705 Опубликовано ({label}) в {CHANNEL_ID}")
-    except Exception:
+        await message.answer(f"✅ Опубликовано ({label}) в {CHANNEL_ID}")
+    except Exception as e:
         logger.exception("Post failed")
-        await message.answer("\u274c Не удалось опубликовать. Проверь логи.")
+        await message.answer(
+            f"❌ Ошибка публикации: {e}\n\n"
+            f"Проверь: права бота в канале <code>{CHANNEL_ID}</code> и модель в /diagnose.",
+            parse_mode="HTML",
+        )
 
 
 @router.message(Command("generate_premium"))
@@ -312,18 +316,18 @@ async def cmd_generate_premium(message: Message) -> None:
     if error:
         return
 
-    await message.answer("\u23f3 Генерирую премиум пост...")
+    await message.answer("⏳ Генерирую премиум пост...")
 
     try:
         ctype, text = await generate_premium_content(content_type)
         label = PREMIUM_CONTENT_TYPES[ctype].label
         await message.answer(
-            f"<b>\U0001f4dd Премиум превью ({label}):</b>\n\n{text}",
+            f"<b>📝 Премиум превью ({label}):</b>\n\n{text}",
             parse_mode=None,
         )
-    except Exception:
+    except Exception as e:
         logger.exception("Premium generation failed")
-        await message.answer("\u274c Не удалось сгенерировать премиум пост. Попробуй позже.")
+        await message.answer(f"❌ Ошибка генерации премиум поста: {e}")
 
 
 @router.message(Command("post_premium"))
@@ -337,7 +341,7 @@ async def cmd_post_premium(message: Message) -> None:
         return
 
     target_chat = PREMIUM_CHANNEL_ID or ADMIN_ID
-    dest_name = "в Spectr Private" if PREMIUM_CHANNEL_ID else "в личку"
+    dest_name = f"в Spectr Private ({target_chat})" if PREMIUM_CHANNEL_ID else "в личку"
     await message.answer(f"⏳ Генерирую премиум пост и визуал для публикации {dest_name}...")
 
     try:
@@ -384,10 +388,17 @@ async def cmd_post_premium(message: Message) -> None:
                 await message.bot.send_message(chat_id=target_chat, text=text, parse_mode=None)
 
         label = PREMIUM_CONTENT_TYPES[ctype].label
-        await message.answer(f"✅ Опубликовано ({label}) {dest_name} ({target_chat})")
-    except Exception:
+        await message.answer(f"✅ Опубликовано ({label}) {dest_name}")
+    except Exception as e:
         logger.exception("Premium post failed")
-        await message.answer("❌ Не удалось отправить. Проверь логи бота.")
+        await message.answer(
+            f"❌ Ошибка публикации: {e}\n\n"
+            f"<b>Проверь:</b>\n"
+            f"1. Добавлен ли бот в канал <code>{target_chat}</code> как <b>Администратор</b> с правом публикации сообщений.\n"
+            f"2. Правильность <code>PREMIUM_CHANNEL_ID</code> в <code>.env</code> (формат: <code>-100...</code>).\n"
+            f"3. Доступность модели ИИ (проверь командой /diagnose).",
+            parse_mode="HTML",
+        )
 
 
 @router.message(Command("invite"))

@@ -13,13 +13,19 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 # Primary model. Override in .env; verify with: python3 tools_check_models.py
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
 
 POST_TIMES_RAW = os.getenv("POST_TIMES", "09:00")
 POST_TIMES = [t.strip() for t in POST_TIMES_RAW.split(",")]
 
 # Premium channel (optional)
-PREMIUM_CHANNEL_ID = os.getenv("PREMIUM_CHANNEL_ID", "")
+_raw_premium = os.getenv("PREMIUM_CHANNEL_ID", "").strip().strip('"').strip("'")
+if _raw_premium.isdigit():
+    PREMIUM_CHANNEL_ID = f"-100{_raw_premium}"
+elif _raw_premium.startswith("-") and not _raw_premium.startswith("-100"):
+    PREMIUM_CHANNEL_ID = f"-100{_raw_premium.lstrip('-')}"
+else:
+    PREMIUM_CHANNEL_ID = _raw_premium
 PREMIUM_POST_TIMES_RAW = os.getenv("PREMIUM_POST_TIMES", "10:00,18:00")
 PREMIUM_POST_TIMES = [t.strip() for t in PREMIUM_POST_TIMES_RAW.split(",")]
 
@@ -277,11 +283,9 @@ def describe_token(token: str) -> str:
     return f"токен бота id {bot_id or '?'}"
 
 # Fallback models, used when the primary one fails or returns nothing.
-# These were verified as dead on the production server and were removed:
-#   deepseek/deepseek-v4-flash     -> ответ 200 без текста, валил генерацию
-#   google/gemini-2.0-flash-001    -> 404 No endpoints found
-# Run `python3 tools_check_models.py --free` to list free models that exist
-# right now, then put one or two working ids here.
-FALLBACK_MODELS: list = []
+FALLBACK_MODELS: list = [
+    "meta-llama/llama-3.3-70b-instruct",
+    "qwen/qwen-2.5-72b-instruct",
+]
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
