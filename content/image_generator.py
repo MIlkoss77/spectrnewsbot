@@ -321,6 +321,8 @@ async def generate_post_image(topic_or_text: str, content_type: str = "") -> Opt
                             crop_bottom = max(70, int(h * 0.08))
                             clean_img = img.crop((0, 0, w, h - crop_bottom))
                             clean_img.save(out_file, quality=95)
+                except ImportError:
+                    logger.error("CRITICAL: Pillow is not installed on server! Run: pip install pillow")
                 except Exception as e_crop:
                     logger.warning("Could not crop watermark: %s", e_crop)
 
