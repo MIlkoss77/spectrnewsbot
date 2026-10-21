@@ -12,9 +12,12 @@ from config import (
     DB_PATH,
     LEAD_MAGNET_CAPTION,
     PDF_PATH,
+    PREMIUM_CHANNEL_ID,
     build_lead_magnet_keyboard,
 )
 from content.generator import PollPost, generate_content, generate_premium_content
+from content.html_formatter import _balance_tags, format_post_html
+from content.image_generator import generate_post_image
 from content.prompts import CONTENT_TYPES, PREMIUM_CONTENT_TYPES
 from scheduler import send_post
 
@@ -326,20 +329,92 @@ async def cmd_generate_premium(message: Message) -> None:
 @router.message(Command("post_premium"))
 async def cmd_post_premium(message: Message) -> None:
     if not _is_admin(message.from_user.id):
-        await message.answer("\u26a0\ufe0f Эта команда только для админа.")
+        await message.answer("⚠️ Эта команда только для админа.")
         return
 
     content_type, error = await _parse_requested_type(message, PREMIUM_CONTENT_TYPES)
     if error:
         return
 
-    await message.answer("\u23f3 Генерирую и отправляю в личку...")
+    target_chat = PREMIUM_CHANNEL_ID or ADMIN_ID
+    dest_name = "в Spectr Private" if PREMIUM_CHANNEL_ID else "в личку"
+    await message.answer(f"⏳ Генерирую премиум пост и визуал для публикации {dest_name}...")
 
     try:
         ctype, text = await generate_premium_content(content_type)
-        await message.bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode=None)
+        formatted_text = format_post_html(text)
+
+        # Генерация изображения
+        image_path = None
+        try:
+            image_path = await generate_post_image(text[:120], ctype)
+        except Exception as e:
+            logger.warning("Premium image generation failed: %s", e)
+
+        if hasattr(message.bot, "send_photo") and image_path and os.path.exists(image_path):
+            try:
+                if len(formatted_text) <= 1024:
+                    photo = FSInputFile(image_path)
+                    await message.bot.send_photo(
+                        chat_id=target_chat, photo=photo, caption=formatted_text, parse_mode="HTML"
+                    )
+                else:
+                    split_idx = formatted_text[:1000].rfind("\n\n")
+                    if split_idx == -1:
+                        split_idx = 1000
+                    caption_part = _balance_tags(formatted_text[:split_idx].strip())
+                    remainder_part = _balance_tags(formatted_text[split_idx:].strip())
+                    photo = FSInputFile(image_path)
+                    await message.bot.send_photo(
+                        chat_id=target_chat, photo=photo, caption=caption_part, parse_mode="HTML"
+                    )
+                    await message.bot.send_message(
+                        chat_id=target_chat, text=remainder_part, parse_mode="HTML"
+                    )
+            except Exception:
+                await message.bot.send_message(
+                    chat_id=target_chat, text=formatted_text, parse_mode="HTML"
+                )
+        else:
+            try:
+                await message.bot.send_message(
+                    chat_id=target_chat, text=formatted_text, parse_mode="HTML"
+                )
+            except Exception:
+                await message.bot.send_message(chat_id=target_chat, text=text, parse_mode=None)
+
         label = PREMIUM_CONTENT_TYPES[ctype].label
-        await message.answer(f"\u2705 Отправлено ({label}) в личку")
+        await message.answer(f"✅ Опубликовано ({label}) {dest_name} ({target_chat})")
     except Exception:
         logger.exception("Premium post failed")
-        await message.answer("\u274c Не удалось отправить. Проверь логи.")
+        await message.answer("❌ Не удалось отправить. Проверь логи бота.")
+
+
+@router.message(Command("invite"))
+async def cmd_invite(message: Message) -> None:
+    """Генерация одноразовой инвайт-ссылки в закрытый канал (админ)."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("⚠️ Эта команда только для админа.")
+        return
+
+    if not PREMIUM_CHANNEL_ID:
+        await message.answer("⚠️ PREMIUM_CHANNEL_ID не настроен в .env")
+        return
+
+    try:
+        invite = await message.bot.create_chat_invite_link(
+            chat_id=PREMIUM_CHANNEL_ID,
+            member_limit=1,
+            name=f"Admin link {message.from_user.id}",
+        )
+        await message.answer(
+            f"🔗 <b>Одноразовая ссылка в Spectr Private:</b>\n\n{invite.invite_link}\n\n"
+            f"<i>Лимит: 1 вход. Можно отправить клиенту в Direct или подарить 7 дней доступа.</i>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.exception("Failed to create invite link")
+        await message.answer(
+            f"❌ Ошибка создания ссылки: {e}\n\n"
+            "Убедись, что бот добавлен в канал как администратор с правом «Управление ссылками приглашений»."
+        )
