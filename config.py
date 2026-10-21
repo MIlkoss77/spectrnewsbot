@@ -20,7 +20,15 @@ POST_TIMES = [t.strip() for t in POST_TIMES_RAW.split(",")]
 
 # Premium channel (optional)
 _raw_premium = os.getenv("PREMIUM_CHANNEL_ID", "").strip().strip('"').strip("'")
-if _raw_premium.isdigit():
+if _raw_premium.startswith("-100100"):
+    PREMIUM_CHANNEL_ID = f"-100{_raw_premium[7:]}"
+elif _raw_premium.startswith("100100"):
+    PREMIUM_CHANNEL_ID = f"-100{_raw_premium[6:]}"
+elif _raw_premium.startswith("-100"):
+    PREMIUM_CHANNEL_ID = _raw_premium
+elif _raw_premium.startswith("100") and _raw_premium.isdigit():
+    PREMIUM_CHANNEL_ID = f"-{_raw_premium}"
+elif _raw_premium.isdigit():
     PREMIUM_CHANNEL_ID = f"-100{_raw_premium}"
 elif _raw_premium.startswith("-") and not _raw_premium.startswith("-100"):
     PREMIUM_CHANNEL_ID = f"-100{_raw_premium.lstrip('-')}"
