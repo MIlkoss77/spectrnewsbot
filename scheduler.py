@@ -26,7 +26,7 @@ from config import (
     get_cta_text,
 )
 from content.generator import PollPost, generate_for_premium_slot, generate_for_slot
-from content.html_formatter import _balance_tags, format_post_html
+from content.html_formatter import _balance_tags, format_post_html, split_post_for_photo
 from content.image_generator import generate_post_image
 
 logger = logging.getLogger(__name__)
@@ -148,9 +148,9 @@ async def send_post(
     # 1. Если передано сгенерированное изображение и бот поддерживает send_photo
     if hasattr(bot, "send_photo") and image_path and os.path.exists(image_path):
         try:
+            photo = FSInputFile(image_path)
             if len(formatted_text) <= 1024:
                 # Весь текст помещается в подпись к фото
-                photo = FSInputFile(image_path)
                 await bot.send_photo(
                     chat_id=CHANNEL_ID,
                     photo=photo,
@@ -162,36 +162,52 @@ async def send_post(
                 return
             else:
                 # Текст длиннее 1024 символов: делим на тизер к фото + продолжение сообщением
-                split_idx = formatted_text[:1000].rfind("\n\n")
-                if split_idx == -1:
-                    split_idx = formatted_text[:1000].rfind("\n")
-                if split_idx == -1:
-                    split_idx = 1000
-
-                caption_part = _balance_tags(formatted_text[:split_idx].strip())
-                remainder_part = _balance_tags(formatted_text[split_idx:].strip())
-
+                caption_part, remainder_part = split_post_for_photo(formatted_text, max_caption_len=900)
+                if caption_part:
+                    await bot.send_photo(
+                        chat_id=CHANNEL_ID,
+                        photo=photo,
+                        caption=caption_part,
+                        parse_mode="HTML",
+                    )
+                    await bot.send_message(
+                        chat_id=CHANNEL_ID,
+                        text=remainder_part,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                    )
+                    logger.info(
+                        "Split photo post published: caption %d chars, text %d chars",
+                        len(caption_part),
+                        len(remainder_part),
+                    )
+                    return
+                else:
+                    # Фото отдельным постом, следом полный текст поста с кнопками
+                    await bot.send_photo(chat_id=CHANNEL_ID, photo=photo)
+                    await bot.send_message(
+                        chat_id=CHANNEL_ID,
+                        text=formatted_text,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                    )
+                    logger.info("Photo + full text message published (%d chars)", len(formatted_text))
+                    return
+        except Exception as e:
+            logger.warning("Failed to send post with photo caption (%s), trying photo + message...", e)
+            try:
                 photo = FSInputFile(image_path)
-                await bot.send_photo(
-                    chat_id=CHANNEL_ID,
-                    photo=photo,
-                    caption=caption_part,
-                    parse_mode="HTML",
-                )
+                await bot.send_photo(chat_id=CHANNEL_ID, photo=photo)
                 await bot.send_message(
                     chat_id=CHANNEL_ID,
-                    text=remainder_part,
+                    text=formatted_text,
                     parse_mode="HTML",
                     reply_markup=keyboard,
                 )
-                logger.info(
-                    "Split photo post published: caption %d chars, text %d chars",
-                    len(caption_part),
-                    len(remainder_part),
-                )
+                logger.info("Fallback: photo + full text message published (%d chars)", len(formatted_text))
                 return
-        except Exception as e:
-            logger.warning("Failed to send post with photo (%s), falling back to send_message...", e)
+            except Exception as e2:
+                logger.warning("Photo fallback failed (%s), falling back to text-only send_message...", e2)
 
     # 2. Текстовая отправка (без фото или при отказе отправки фото)
     try:
@@ -273,8 +289,8 @@ async def post_to_premium_channel(bot) -> None:
 
         if hasattr(bot, "send_photo") and image_path and os.path.exists(image_path):
             try:
+                photo = FSInputFile(image_path)
                 if len(formatted_text) <= 1024:
-                    photo = FSInputFile(image_path)
                     await bot.send_photo(
                         chat_id=target_chat,
                         photo=photo,
@@ -284,31 +300,39 @@ async def post_to_premium_channel(bot) -> None:
                     logger.info("Sent premium photo post to %s (post #%d)", target_chat, counter)
                     return
                 else:
-                    split_idx = formatted_text[:1000].rfind("\n\n")
-                    if split_idx == -1:
-                        split_idx = formatted_text[:1000].rfind("\n")
-                    if split_idx == -1:
-                        split_idx = 1000
-
-                    caption_part = _balance_tags(formatted_text[:split_idx].strip())
-                    remainder_part = _balance_tags(formatted_text[split_idx:].strip())
-
-                    photo = FSInputFile(image_path)
-                    await bot.send_photo(
-                        chat_id=target_chat,
-                        photo=photo,
-                        caption=caption_part,
-                        parse_mode="HTML",
-                    )
-                    await bot.send_message(
-                        chat_id=target_chat,
-                        text=remainder_part,
-                        parse_mode="HTML",
-                    )
-                    logger.info("Sent split premium photo post to %s (post #%d)", target_chat, counter)
-                    return
+                    caption_part, remainder_part = split_post_for_photo(formatted_text, max_caption_len=900)
+                    if caption_part:
+                        await bot.send_photo(
+                            chat_id=target_chat,
+                            photo=photo,
+                            caption=caption_part,
+                            parse_mode="HTML",
+                        )
+                        await bot.send_message(
+                            chat_id=target_chat,
+                            text=remainder_part,
+                            parse_mode="HTML",
+                        )
+                        logger.info("Sent split premium photo post to %s (post #%d)", target_chat, counter)
+                        return
+                    else:
+                        await bot.send_photo(chat_id=target_chat, photo=photo)
+                        await bot.send_message(
+                            chat_id=target_chat,
+                            text=formatted_text,
+                            parse_mode="HTML",
+                        )
+                        logger.info("Sent premium photo + full message to %s (post #%d)", target_chat, counter)
+                        return
             except Exception as e:
-                logger.warning("Failed to send premium photo (%s), falling back to text...", e)
+                logger.warning("Failed to send premium photo (%s), trying photo + message...", e)
+                try:
+                    photo = FSInputFile(image_path)
+                    await bot.send_photo(chat_id=target_chat, photo=photo)
+                    await bot.send_message(chat_id=target_chat, text=formatted_text, parse_mode="HTML")
+                    return
+                except Exception as e2:
+                    logger.warning("Premium photo fallback failed (%s), falling back to text...", e2)
 
         try:
             await bot.send_message(chat_id=target_chat, text=formatted_text, parse_mode="HTML")

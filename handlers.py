@@ -16,7 +16,7 @@ from config import (
     build_lead_magnet_keyboard,
 )
 from content.generator import PollPost, generate_content, generate_premium_content
-from content.html_formatter import _balance_tags, format_post_html
+from content.html_formatter import _balance_tags, format_post_html, split_post_for_photo
 from content.image_generator import generate_post_image
 from content.prompts import CONTENT_TYPES, PREMIUM_CONTENT_TYPES
 from scheduler import send_post
@@ -293,12 +293,26 @@ async def cmd_post(message: Message) -> None:
     if error:
         return
 
-    await message.answer("⏳ Генерирую и публикую в канал...")
+    await message.answer(f"⏳ Генерирую пост и визуал для бесплатного канала ({CHANNEL_ID})...")
 
     try:
         ctype, post = await generate_content(content_type)
-        # Ручная публикация идёт как обычный пост; CTA добавляется расписанием.
-        await send_post(message.bot, ctype, post, with_cta=False)
+        image_path = None
+        if not isinstance(post, PollPost):
+            try:
+                post_str = str(post)
+                lines = [l.strip() for l in post_str.splitlines() if l.strip()]
+                topic_hint = (
+                    lines[1]
+                    if len(lines) > 1 and lines[0].startswith("//")
+                    else (lines[0] if lines else "")
+                )
+                image_path = await generate_post_image(topic_hint or post_str[:120], ctype)
+            except Exception as e_img:
+                logger.warning("Post image generation skipped: %s", e_img)
+                image_path = None
+
+        await send_post(message.bot, ctype, post, with_cta=False, image_path=image_path)
         label = CONTENT_TYPES[ctype].label
         await message.answer(f"✅ Опубликовано ({label}) в {CHANNEL_ID}")
     except Exception as e:
@@ -357,28 +371,37 @@ async def cmd_post_premium(message: Message) -> None:
 
         if hasattr(message.bot, "send_photo") and image_path and os.path.exists(image_path):
             try:
+                photo = FSInputFile(image_path)
                 if len(formatted_text) <= 1024:
-                    photo = FSInputFile(image_path)
                     await message.bot.send_photo(
                         chat_id=target_chat, photo=photo, caption=formatted_text, parse_mode="HTML"
                     )
                 else:
-                    split_idx = formatted_text[:1000].rfind("\n\n")
-                    if split_idx == -1:
-                        split_idx = 1000
-                    caption_part = _balance_tags(formatted_text[:split_idx].strip())
-                    remainder_part = _balance_tags(formatted_text[split_idx:].strip())
+                    caption_part, remainder_part = split_post_for_photo(formatted_text, max_caption_len=900)
+                    if caption_part:
+                        await message.bot.send_photo(
+                            chat_id=target_chat, photo=photo, caption=caption_part, parse_mode="HTML"
+                        )
+                        await message.bot.send_message(
+                            chat_id=target_chat, text=remainder_part, parse_mode="HTML"
+                        )
+                    else:
+                        await message.bot.send_photo(chat_id=target_chat, photo=photo)
+                        await message.bot.send_message(
+                            chat_id=target_chat, text=formatted_text, parse_mode="HTML"
+                        )
+            except Exception as e_ph:
+                logger.warning("Failed to send premium photo (%s), trying photo + message...", e_ph)
+                try:
                     photo = FSInputFile(image_path)
-                    await message.bot.send_photo(
-                        chat_id=target_chat, photo=photo, caption=caption_part, parse_mode="HTML"
-                    )
+                    await message.bot.send_photo(chat_id=target_chat, photo=photo)
                     await message.bot.send_message(
-                        chat_id=target_chat, text=remainder_part, parse_mode="HTML"
+                        chat_id=target_chat, text=formatted_text, parse_mode="HTML"
                     )
-            except Exception:
-                await message.bot.send_message(
-                    chat_id=target_chat, text=formatted_text, parse_mode="HTML"
-                )
+                except Exception:
+                    await message.bot.send_message(
+                        chat_id=target_chat, text=formatted_text, parse_mode="HTML"
+                    )
         else:
             try:
                 await message.bot.send_message(

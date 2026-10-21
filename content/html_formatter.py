@@ -118,3 +118,42 @@ def _balance_tags(text: str) -> str:
         text += f"</{unclosed}>"
 
     return text
+
+
+def split_post_for_photo(formatted_text: str, max_caption_len: int = 900) -> tuple[str, str]:
+    """Безопасно делит длинный пост на подпись к фото и продолжение текстом.
+
+    Деление происходит строго по границам абзацев. Обе части валидируются
+    и балансируются отдельно, исключая сломанные теги Telegram.
+    """
+    if not formatted_text:
+        return "", ""
+
+    paragraphs = [p for p in formatted_text.split("\n\n") if p.strip()]
+    caption_paragraphs = []
+    current_len = 0
+    idx = 0
+
+    for i, p in enumerate(paragraphs):
+        p_len = len(p) + (2 if caption_paragraphs else 0)
+        if current_len + p_len > max_caption_len:
+            break
+        caption_paragraphs.append(p)
+        current_len += p_len
+        idx = i + 1
+
+    # Если даже один первый абзац длиннее лимита, возвращаем пусто для подписи
+    if not caption_paragraphs:
+        return "", formatted_text
+
+    caption_raw = "\n\n".join(caption_paragraphs)
+    remainder_raw = "\n\n".join(paragraphs[idx:])
+
+    caption_clean = format_post_html(caption_raw)
+    remainder_clean = format_post_html(remainder_raw)
+
+    # Защитный лимит Telegram для подписи к медиа: строго <= 1024
+    if len(caption_clean) > 1020:
+        return "", formatted_text
+
+    return caption_clean, remainder_clean

@@ -114,8 +114,20 @@ async def generate_post_image(topic: str, content_type: str = "") -> Optional[st
             if resp.status_code == 200 and len(resp.content) > 5000:
                 with open(out_file, "wb") as f:
                     f.write(resp.content)
+
+                # Безупречная чистота: срезаем нижний водяной знак pollinations.ai (45 пикселей снизу)
+                try:
+                    from PIL import Image
+                    with Image.open(out_file) as img:
+                        w, h = img.size
+                        if h > 100:
+                            clean_img = img.crop((0, 0, w, h - 45))
+                            clean_img.save(out_file, quality=95)
+                except Exception as e_crop:
+                    logger.warning("Could not crop watermark: %s", e_crop)
+
                 elapsed = round(time.time() - t0, 1)
-                logger.info("Image successfully generated in %ss (%d bytes): %s", elapsed, len(resp.content), out_file.name)
+                logger.info("Image successfully generated in %ss (%d bytes, watermark removed): %s", elapsed, len(resp.content), out_file.name)
                 _cleanup_old_images()
                 return str(out_file)
             else:
