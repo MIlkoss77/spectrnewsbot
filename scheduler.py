@@ -125,12 +125,29 @@ async def send_post(
 
     if isinstance(post, PollPost):
         if post.context_text:
-            # Вводный текст идёт отдельным сообщением, опрос — следом.
             context = f"{post.context_text}\n\n{cta}" if cta else post.context_text
-            await bot.send_message(
-                chat_id=CHANNEL_ID, text=context, parse_mode=None, reply_markup=keyboard
-            )
-            keyboard = None  # кнопки уже висят на контексте
+            if hasattr(bot, "send_photo") and image_path and os.path.exists(image_path):
+                try:
+                    photo = FSInputFile(image_path)
+                    await bot.send_photo(
+                        chat_id=CHANNEL_ID,
+                        photo=photo,
+                        caption=context[:1024],
+                        parse_mode=None,
+                        reply_markup=keyboard,
+                    )
+                    keyboard = None
+                except Exception as e_poll_ph:
+                    logger.warning("Failed to send photo for poll (%s), sending text...", e_poll_ph)
+                    await bot.send_message(
+                        chat_id=CHANNEL_ID, text=context, parse_mode=None, reply_markup=keyboard
+                    )
+                    keyboard = None
+            else:
+                await bot.send_message(
+                    chat_id=CHANNEL_ID, text=context, parse_mode=None, reply_markup=keyboard
+                )
+                keyboard = None  # кнопки уже висят на контексте
         await bot.send_poll(
             chat_id=CHANNEL_ID,
             question=post.question,
@@ -237,15 +254,14 @@ async def post_to_channel(bot) -> None:
         if with_cta:
             logger.info("CTA with purchase buttons attached (post #%d)", counter)
 
-        # Генерация брендового визуала (для обычных постов, кроме опросов)
+        # Генерация брендового визуала
         image_path = None
-        if not isinstance(post, PollPost):
-            try:
-                post_str = str(post)
-                image_path = await generate_post_image(post_str[:500], content_type)
-            except Exception as e:
-                logger.warning("Image generation skipped gracefully: %s", e)
-                image_path = None
+        try:
+            post_str = post.context_text if isinstance(post, PollPost) else str(post)
+            image_path = await generate_post_image(post_str[:500] or "Нейронаука", content_type)
+        except Exception as e:
+            logger.warning("Image generation skipped gracefully: %s", e)
+            image_path = None
 
         await send_post(bot, content_type, post, with_cta=with_cta, image_path=image_path)
         logger.info("Posted [%s] to channel successfully (post #%d)", content_type, counter)

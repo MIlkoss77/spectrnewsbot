@@ -285,10 +285,17 @@ def build_image_prompt(topic: str, content_type: str = "") -> str:
 
 
 async def generate_post_image(topic_or_text: str, content_type: str = "") -> Optional[str]:
-    """Сгенерировать и сохранить картинку для поста через Pollinations Flux.
+    """Сгенерировать и сохранить картинку для поста через Pollinations AI.
 
-    Возвращает путь к сохраненному файлу или None при ошибке/таймауте.
+    Особенности:
+    - Двухуровневый каскад: сначала FLUX (быстрые 768x768), при сбое/таймауте — моментальный TURBO.
+    - Автоматическая обработка лимита 402 (FREE_LIMIT): парсит время паузы и повторяет запрос.
+    - Таймаут 45с для Flux и 20с для Turbo.
+    - Кроп водяного знака снизу через Pillow.
+    - При абсолютном сбое возвращает None (пост уходит текстом без падений).
     """
+    import asyncio
+
     # 1. Сначала пробуем динамический подбор через LLM; если недоступен — используем каталог тем
     subject = await _generate_dynamic_subject(topic_or_text)
     if not subject:
@@ -296,46 +303,67 @@ async def generate_post_image(topic_or_text: str, content_type: str = "") -> Opt
 
     prompt = f"{subject}, {BRAND_PROMPT_SUFFIX}"
     encoded_prompt = urllib.parse.quote(prompt)
-    seed = random.randint(10000, 999999)
-    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&model=flux&nologo=true&seed={seed}"
 
-    timestamp = int(time.time())
-    out_file = CACHE_DIR / f"post_{timestamp}_{seed}.jpg"
+    models_to_try = [
+        ("flux", 45.0),
+        ("turbo", 20.0),
+    ]
 
-    logger.info("Generating post image via Pollinations Flux: %s...", prompt[:60])
-    t0 = time.time()
+    for model_name, req_timeout in models_to_try:
+        for attempt in range(2):
+            seed = random.randint(10000, 999999)
+            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=768&model={model_name}&seed={seed}"
+            timestamp = int(time.time())
+            out_file = CACHE_DIR / f"post_{timestamp}_{seed}.jpg"
 
-    try:
-        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers={"User-Agent": "SpectrMindBot/1.0"})
-            if resp.status_code == 200 and len(resp.content) > 5000:
-                with open(out_file, "wb") as f:
-                    f.write(resp.content)
+            logger.info("Generating post image via Pollinations (%s, attempt %d): %s...", model_name, attempt + 1, prompt[:60])
+            t0 = time.time()
 
-                # Безупречная чистота: срезаем нижний водяной знак pollinations.ai (70-80px снизу)
-                try:
-                    from PIL import Image
-                    with Image.open(out_file) as img:
-                        w, h = img.size
-                        if h > 100:
-                            crop_bottom = max(70, int(h * 0.08))
-                            clean_img = img.crop((0, 0, w, h - crop_bottom))
-                            clean_img.save(out_file, quality=95)
-                except ImportError:
-                    logger.error("CRITICAL: Pillow is not installed on server! Run: pip install pillow")
-                except Exception as e_crop:
-                    logger.warning("Could not crop watermark: %s", e_crop)
+            try:
+                async with httpx.AsyncClient(timeout=req_timeout, follow_redirects=True) as client:
+                    resp = await client.get(url, headers={"User-Agent": "SpectrMindBot/1.0"})
 
-                elapsed = round(time.time() - t0, 1)
-                logger.info("Image successfully generated in %ss (%d bytes, watermark cleanly removed): %s", elapsed, len(resp.content), out_file.name)
-                _cleanup_old_images()
-                return str(out_file)
-            else:
-                logger.warning("Pollinations returned status %s or small content: %d bytes", resp.status_code, len(resp.content))
-                return None
-    except Exception as e:
-        logger.warning("Failed to generate image via Pollinations (will post text-only): %s", e)
-        return None
+                    if resp.status_code == 200 and len(resp.content) > 5000:
+                        with open(out_file, "wb") as f:
+                            f.write(resp.content)
+
+                        # Безупречная чистота: срезаем нижний водяной знак pollinations.ai (70-80px снизу)
+                        try:
+                            from PIL import Image
+                            with Image.open(out_file) as img:
+                                w, h = img.size
+                                if h > 100:
+                                    crop_bottom = max(70, int(h * 0.08))
+                                    clean_img = img.crop((0, 0, w, h - crop_bottom))
+                                    clean_img.save(out_file, quality=95)
+                        except ImportError:
+                            logger.error("CRITICAL: Pillow is not installed on server! Run: pip install pillow")
+                        except Exception as e_crop:
+                            logger.warning("Could not crop watermark: %s", e_crop)
+
+                        elapsed = round(time.time() - t0, 1)
+                        logger.info("Image successfully generated in %ss (%d bytes, watermark cleanly removed via %s): %s", elapsed, len(resp.content), model_name, out_file.name)
+                        _cleanup_old_images()
+                        return str(out_file)
+
+                    elif resp.status_code == 402:
+                        # Лимит 1 запрос в 45 сек на IP: парсим точное время паузы и ждём
+                        body = resp.text
+                        m = re.search(r"Retry after (\d+)s", body)
+                        wait_sec = min(int(m.group(1)) + 1, 46) if m else 30
+                        logger.warning("Pollinations 402 rate-limit hit (%s). Waiting %ds before retry...", model_name, wait_sec)
+                        if attempt == 0:
+                            await asyncio.sleep(wait_sec)
+                            continue
+                    else:
+                        logger.warning("Pollinations (%s) returned status %s (%d bytes)", model_name, resp.status_code, len(resp.content))
+                        break  # переходим к резервной модели turbo
+            except Exception as e:
+                logger.warning("Pollinations (%s) attempt %d failed (%s)", model_name, attempt + 1, e)
+                break  # переходим к следующей модели
+
+    logger.error("All image generation attempts exhausted via Pollinations, posting text-only")
+    return None
 
 
 def _cleanup_old_images(max_age_days: int = 3) -> None:

@@ -298,13 +298,12 @@ async def cmd_post(message: Message) -> None:
     try:
         ctype, post = await generate_content(content_type)
         image_path = None
-        if not isinstance(post, PollPost):
-            try:
-                post_str = str(post)
-                image_path = await generate_post_image(post_str[:500], ctype)
-            except Exception as e_img:
-                logger.warning("Post image generation skipped: %s", e_img)
-                image_path = None
+        try:
+            post_str = post.context_text if isinstance(post, PollPost) else str(post)
+            image_path = await generate_post_image(post_str[:500] or "Нейронаука", ctype)
+        except Exception as e_img:
+            logger.warning("Post image generation skipped: %s", e_img)
+            image_path = None
 
         await send_post(message.bot, ctype, post, with_cta=False, image_path=image_path)
         label = CONTENT_TYPES[ctype].label
