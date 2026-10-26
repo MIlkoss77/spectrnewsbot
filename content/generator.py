@@ -147,7 +147,7 @@ def count_words(text: str) -> int:
     return len(stripped.split())
 
 
-def _is_complete(text: str, min_words: int = 80) -> bool:
+def _is_complete(text: str, min_words: int = 40) -> bool:
     """Check if generated text looks complete (not truncated)."""
     if not text:
         return False
@@ -178,7 +178,7 @@ def _is_complete(text: str, min_words: int = 80) -> bool:
     return False
 
 
-def _trim_incomplete_tail(text: str, min_words: int = 80) -> str:
+def _trim_incomplete_tail(text: str, min_words: int = 40) -> str:
     """Trim incomplete trailing content, keeping only complete paragraphs."""
     if not text:
         return text
@@ -239,7 +239,8 @@ def _build_prompt(topic: str, base_prompt: str, hashtags: str = "") -> str:
         ]
     parts += [
         "",
-        "Объём поста: 100–130 слов. Пост должен быть ёмким, плотным по пользе и легко читаться с экрана смартфона за 1 минуту.",
+        "Объём поста: строго 60–90 слов (максимум 100 слов). Пост должен читаться за 20–30 секунд с экрана смартфона. 2–3 коротких абзаца по 1–2 предложения.",
+        "Никаких водянистых вступлений, докладов и лекторского тона. Пиши живо, ёмко, как живой человек в личном блоге.",
         "Тему сверху не пересказывай дословно и не копируй её формулировку как заголовок — "
         "перепиши её живой фразой своими словами.",
         "Пиши строго про указанную тему.",

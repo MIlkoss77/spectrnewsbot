@@ -15,6 +15,11 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 # Primary model. Override in .env; verify with: python3 tools_check_models.py
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
 
+# Image generation configuration (OpenAI DALL-E 3, Pollinations / Pollen Key)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+POLLEN_API_KEY = os.getenv("POLLEN_API_KEY", os.getenv("POLLINATIONS_API_KEY", ""))
+IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "auto").strip().lower()  # auto, openai, pollen, pollinations
+
 POST_TIMES_RAW = os.getenv("POST_TIMES", "09:00")
 POST_TIMES = [t.strip() for t in POST_TIMES_RAW.split(",")]
 
