@@ -224,6 +224,31 @@ THEME_MAPPINGS = [
         r"(вечер|закат|отход ко сну|рефлекси)",
         "dimly lit luxury living room with dark textured walls, warm glowing candle in a heavy glass holder, cozy deep shadows, serene evening calm",
     ),
+    # 37. Актеры / режиссеры / кино / привычки звезд
+    (
+        r"(актер|кино|фильм|режиссер|нолан|финчер|мерфи|макконахи|ривз|станиславск)",
+        "vintage 35mm film camera lens and script notebook on dark concrete studio desk, dramatic chiaroscuro side lighting, cinematic still life",
+    ),
+    # 38. Секретные эксперименты / ЦРУ / Бехтерева / Либет / Gateway
+    (
+        r"(либет|бехтерев|gateway|цру|эксперимент.*мозг|иллюзи)",
+        "minimalist dark research archive with classified textured document and optical prism refracting gentle light on slate, mysterious quiet aesthetic",
+    ),
+    # 39. Шахматы / гроссмейстеры / стратегическое мышление
+    (
+        r"(шахмат|гроссмейстер)",
+        "handcrafted matte black wooden chess piece resting on dark textured stone board, soft focused morning light, luxury still life",
+    ),
+    # 40. Спецназ / Navy SEALs / космонавты / МКС
+    (
+        r"(космонавт|мкс|орбит|navy seal|морск.*котик|спецназ)",
+        "minimalist dark titanium chronometer watch resting on raw basalt stone, subtle rim light, high-performance tactical luxury",
+    ),
+    # 41. Эдисон / металлический шарик / изобретения / озарение
+    (
+        r"(эдисон|шарик|изобретен|озарен)",
+        "polished solid steel sphere resting on dark textured oak desk beside a minimal black notebook, soft warm window rays, contemplative still life",
+    ),
 ]
 
 # Эстетичный дефолтный предмет: минималистичный рабочий стол с блокнотом и ручкой

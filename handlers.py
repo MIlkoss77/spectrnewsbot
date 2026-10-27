@@ -92,8 +92,11 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
+    first_name = (user.first_name or "").strip() or "друг"
     await message.answer(
-        "Твой доступ к базовому протоколу <b>SpectrMind</b> открыт.",
+        f"Привет, {first_name}! 🧠\n\n"
+        "Твой доступ к протоколу <b>SpectrMind</b> открыт.\n"
+        "Скачивай PDF-руководство ниже 👇",
         parse_mode="HTML",
     )
     await message.answer_document(
