@@ -685,47 +685,82 @@ class SpectrCarouselGenerator:
                 default_color=p["text_main"],
                 accent_color=p["accent"],
             )
-            top_y += 16
+            top_y += 24
 
             steps = slide.get("steps", [])
-            f_step_num = self._font("mono", 20)
+            f_step_num = self._font("primary", 40)
+            f_step_tag = self._font("mono", 14)
             f_step_title = self._font("secondary", 28)
             f_step_desc = self._font("secondary", 24)
 
+            avail_h = (self.HEIGHT - self.MARGIN_BOTTOM - 90) - top_y
+            num_steps = len(steps) if steps else 1
+            gap = 20
+            card_h = min(195, max(170, (avail_h - (num_steps - 1) * gap) // num_steps))
+            idx_w = 124
+
             for s_idx, step in enumerate(steps):
                 box_top = top_y
-                card_h = 158
+                # Фоновая карточка
                 draw.rectangle(
                     [inner_x, box_top, inner_x + inner_w, box_top + card_h],
                     fill=p["bg_Card"],
                     outline=p["border"],
                     width=1,
                 )
-                idx_w = 104
+                # Левая плашка под номер и тег
                 draw.rectangle(
                     [inner_x, box_top, inner_x + idx_w, box_top + card_h],
                     fill=p["accent_bg"],
                     outline=p["border"],
                     width=1,
                 )
-                num_str = step.get("code", f"0{s_idx + 1}")
-                draw.text((inner_x + 18, box_top + 64), num_str, font=f_step_num, fill=p["accent"])
+                # Вертикальная неоновая полоса на левом краю карточки
+                draw.rectangle(
+                    [inner_x, box_top, inner_x + 4, box_top + card_h],
+                    fill=p["accent"],
+                )
 
-                tx = inner_x + idx_w + 24
-                tw = inner_w - idx_w - 40
-                draw.text((tx, box_top + 18), step.get("heading", ""), font=f_step_title, fill=p["text_main"])
+                # Разбор кода шага (напр. "01 // СВЕТ" -> номер "01" и тег "СВЕТ")
+                raw_code = str(step.get("code", f"0{s_idx + 1}")).strip()
+                if "//" in raw_code:
+                    parts = raw_code.split("//", 1)
+                    num_str = parts[0].strip()
+                    tag_str = parts[1].strip().upper()
+                elif " " in raw_code and any(ch.isdigit() for ch in raw_code.split(" ")[0]):
+                    parts = raw_code.split(" ", 1)
+                    num_str = parts[0].strip()
+                    tag_str = parts[1].strip().upper()
+                else:
+                    num_str = f"{s_idx + 1:02d}"
+                    tag_str = raw_code.upper() if raw_code else f"ШАГ {s_idx + 1}"
+
+                # Центрируем номер и тег в левой плашке
+                sidebar_cx = inner_x + idx_w / 2.0
+                nw = draw.textlength(num_str, font=f_step_num)
+                draw.text((sidebar_cx - nw / 2.0, box_top + 40), num_str, font=f_step_num, fill=p["accent"])
+
+                if tag_str:
+                    draw.line([(inner_x + 22, box_top + 94), (inner_x + idx_w - 22, box_top + 94)], fill=p["border"], width=1)
+                    tw = draw.textlength(tag_str, font=f_step_tag)
+                    draw.text((sidebar_cx - tw / 2.0, box_top + 108), tag_str, font=f_step_tag, fill=p["text_muted"])
+
+                # Контент справа от плашки — никогда не пересекается
+                tx = inner_x + idx_w + 26
+                tw_content = inner_w - idx_w - 46
+                draw.text((tx, box_top + 22), step.get("heading", ""), font=f_step_title, fill=p["text_main"])
                 self._draw_rich_paragraph(
                     draw,
                     step.get("text", ""),
                     x=tx,
-                    y=box_top + 58,
-                    max_width=tw,
+                    y=box_top + 68,
+                    max_width=tw_content,
                     font=f_step_desc,
                     line_height=32,
                     default_color=p["text_muted"],
                     accent_color=p["accent"],
                 )
-                top_y += card_h + 18
+                top_y += card_h + gap
 
         elif slide_type == "cta":
             f_title = self._font("primary", slide.get("title_size", 54))
