@@ -602,28 +602,31 @@ class SpectrCarouselGenerator:
                     self._draw_neuro_graphic(draw, mode=graphic_mode, box=(inner_x, g_top, inner_x + inner_w, g_bot))
 
         elif slide_type == "content":
-            f_title = self._font("primary", slide.get("title_size", 50))
-            top_y = self._draw_rich_paragraph(
-                draw,
-                slide.get("title", ""),
-                x=inner_x,
-                y=top_y,
-                max_width=inner_w,
-                font=f_title,
-                line_height=int(slide.get("title_size", 50) * 1.18),
-                default_color=p["text_main"],
-                accent_color=p["accent"],
-                highlight_box=not p["is_dark"],
-            )
-            top_y += 12
-            draw.line([(inner_x, top_y), (inner_x + 140, top_y)], fill=p["accent"], width=3)
-            top_y += 24
+            title_text = slide.get("title") or slide.get("heading") or slide.get("header") or ""
+            if title_text:
+                f_title = self._font("primary", slide.get("title_size", 50))
+                top_y = self._draw_rich_paragraph(
+                    draw,
+                    title_text,
+                    x=inner_x,
+                    y=top_y,
+                    max_width=inner_w,
+                    font=f_title,
+                    line_height=int(slide.get("title_size", 50) * 1.18),
+                    default_color=p["text_main"],
+                    accent_color=p["accent"],
+                    highlight_box=not p["is_dark"],
+                )
+                top_y += 12
+                draw.line([(inner_x, top_y), (inner_x + 140, top_y)], fill=p["accent"], width=3)
+                top_y += 24
 
-            if slide.get("body"):
+            body_text = slide.get("body") or slide.get("text") or slide.get("description") or slide.get("content") or ""
+            if body_text:
                 f_body = self._font("secondary", 29)
                 top_y = self._draw_rich_paragraph(
                     draw,
-                    slide["body"],
+                    body_text,
                     x=inner_x,
                     y=top_y,
                     max_width=inner_w,
@@ -654,7 +657,8 @@ class SpectrCarouselGenerator:
                     draw.text((mx_col + 20, top_y + 78), str(m.get("label", "")).upper(), font=f_lbl, fill=p["text_muted"])
                 top_y += card_h + 20
 
-            if slide.get("callout"):
+            callout_text = slide.get("callout") or slide.get("quote") or slide.get("citation") or ""
+            if callout_text:
                 c_top = max(top_y + 10, self.HEIGHT - self.MARGIN_BOTTOM - 225)
                 c_bot = self.HEIGHT - self.MARGIN_BOTTOM - 100
                 draw.rectangle([inner_x, c_top, inner_x + inner_w, c_bot], fill=p["bg_Card"], outline=p["border"], width=1)
@@ -662,7 +666,7 @@ class SpectrCarouselGenerator:
                 f_call = self._font("secondary", 24)
                 self._draw_rich_paragraph(
                     draw,
-                    slide["callout"],
+                    callout_text,
                     x=inner_x + 24,
                     y=c_top + 18,
                     max_width=inner_w - 44,
@@ -673,10 +677,11 @@ class SpectrCarouselGenerator:
                 )
 
         elif slide_type == "protocol":
+            title_text = slide.get("title") or slide.get("heading") or slide.get("header") or "3 ШАГА ПРОТОКОЛА"
             f_title = self._font("primary", slide.get("title_size", 48))
             top_y = self._draw_rich_paragraph(
                 draw,
-                slide.get("title", ""),
+                title_text,
                 x=inner_x,
                 y=top_y,
                 max_width=inner_w,
@@ -687,7 +692,7 @@ class SpectrCarouselGenerator:
             )
             top_y += 24
 
-            steps = slide.get("steps", [])
+            steps = slide.get("steps") or slide.get("items") or slide.get("protocol") or []
             f_step_num = self._font("primary", 40)
             f_step_tag = self._font("mono", 14)
             f_step_title = self._font("secondary", 28)
@@ -763,10 +768,11 @@ class SpectrCarouselGenerator:
                 top_y += card_h + gap
 
         elif slide_type == "cta":
+            title_text = slide.get("title") or slide.get("heading") or slide.get("header") or "ЗАБЕРИ ПОЛНЫЙ НЕЙРО-ПРОТОКОЛ В TELEGRAM"
             f_title = self._font("primary", slide.get("title_size", 54))
             top_y = self._draw_rich_paragraph(
                 draw,
-                slide.get("title", ""),
+                title_text,
                 x=inner_x,
                 y=top_y,
                 max_width=inner_w,
@@ -778,11 +784,12 @@ class SpectrCarouselGenerator:
             )
             top_y += 16
 
-            if slide.get("body"):
+            body_text = slide.get("body") or slide.get("text") or slide.get("description") or ""
+            if body_text:
                 f_body = self._font("secondary", 29)
                 top_y = self._draw_rich_paragraph(
                     draw,
-                    slide["body"],
+                    body_text,
                     x=inner_x,
                     y=top_y,
                     max_width=inner_w,
@@ -810,9 +817,10 @@ class SpectrCarouselGenerator:
                 font=f_mono_b,
                 fill=p["accent"],
             )
+            lead_mag = slide.get("lead_magnet_title") or slide.get("lead_magnet") or "Гайд «Нейро-Стек: Управление ПФК»"
             draw.text(
                 (inner_x + 32, top_y + 62),
-                slide.get("lead_magnet_title", "«Нейро-Стек: Управление префронтальной корой»"),
+                lead_mag,
                 font=f_cta_h,
                 fill=p["text_main"],
             )
@@ -825,7 +833,7 @@ class SpectrCarouselGenerator:
                 [inner_x + 32, btn_y, inner_x + inner_w - 32, btn_y + btn_h],
                 fill=btn_bg,
             )
-            btn_text = slide.get("cta_button", "ССЫЛКА В ШАПКЕ ПРОФИЛЯ -> @SPECTRNEWSBOT")
+            btn_text = slide.get("cta_button") or slide.get("button_text") or "ССЫЛКА В ШАПКЕ ПРОФИЛЯ -> @SPECTRNEWSBOT"
             btw = draw.textlength(btn_text, font=f_mono_b)
             draw.text(
                 (inner_x + (inner_w - int(btw)) // 2, btn_y + 24),
@@ -835,10 +843,11 @@ class SpectrCarouselGenerator:
             )
 
             top_y += box_h + 24
-            if slide.get("footer_note"):
+            foot_note = slide.get("footer_note") or slide.get("footer") or ""
+            if foot_note:
                 self._draw_rich_paragraph(
                     draw,
-                    slide["footer_note"],
+                    foot_note,
                     x=inner_x,
                     y=top_y,
                     max_width=inner_w,
@@ -860,7 +869,7 @@ class SpectrCarouselGenerator:
         for idx, slide in enumerate(slides):
             img = self.render_slide(slide, idx=idx, total=len(slides), meta=meta)
             out_path = os.path.join(output_dir, f"slide_{idx + 1:02d}_{self.theme_key}.png")
-            img.save(out_path, format="PNG", optimize=True)
+            img.save(out_path, format="PNG", compress_level=2)
             saved_files.append(out_path)
 
         return saved_files
