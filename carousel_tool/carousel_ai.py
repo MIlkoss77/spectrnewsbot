@@ -187,7 +187,37 @@ SYSTEM_PROMPT = """Ты — ведущий научный редактор пр�
 ВАЖНЕЙШИЕ ПРАВИЛА:
 1. Ключи на каждом слайде ОБЯЗАТЕЛЬНЫ: 'type', 'badge', 'title', 'body', 'subtitle', 'metrics', 'callout', 'steps', 'code', 'heading', 'text', 'lead_magnet_title', 'cta_button', 'footer_note'.
 2. На слайде 4 в 'steps' ДОЛЖНО быть ровно 3 шага с 'code' вида '01 // ТЕГ' (где ТЕГ — одно слово капсом: ВОДА, ХОЛОД, ДЫХАНИЕ, СОН, АТФ).
-3. ОТВЕТЬ ТОЛЬКО ВАЛИДНЫМ JSON БЕЗ ЛИШНЕГО ТЕКСТА."""
+3. СТРОЖАЙШЕ 100% РУССКИЙ ЯЗЫК. Запрещены любые случайные английские слова (НЕЛЬЗЯ писать 'soviet archives', 'focus', 'brain', 'dossier' и т.п. — только 'архивы СССР', 'фокус', 'мозг', 'досье'). Все заголовки, тексты, бейджи, цитаты и шаги пиши ИСКЛЮЧИТЕЛЬНО на русском языке.
+4. ОТВЕТЬ ТОЛЬКО ВАЛИДНЫМ JSON БЕЗ ЛИШНЕГО ТЕКСТА."""
+
+
+def clean_russian_text(obj):
+    """Рекурсивно заменяет случайные английские слова на правильный русский язык."""
+    if isinstance(obj, str):
+        replacements = [
+            (r"(?i)\bsoviet archives\b", "архивы СССР"),
+            (r"(?i)\bsoviet archive\b", "архив СССР"),
+            (r"(?i)\bsoviet\b", "советский"),
+            (r"(?i)\barchives\b", "архивы"),
+            (r"(?i)\barchive\b", "архив"),
+            (r"(?i)\bneuro-dossier\b", "нейро-досье"),
+            (r"(?i)\bdossier\b", "досье"),
+            (r"(?i)\bclinical archive\b", "клинический архив"),
+            (r"(?i)\bclinical\b", "клинический"),
+            (r"(?i)\bprotocol\b", "протокол"),
+            (r"(?i)\bbrain\b", "мозг"),
+            (r"(?i)\bfocus\b", "фокус"),
+            (r"(?i)\benergy\b", "энергия"),
+        ]
+        res = obj
+        for pat, repl in replacements:
+            res = re.sub(pat, repl, res)
+        return res
+    elif isinstance(obj, list):
+        return [clean_russian_text(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: clean_russian_text(v) for k, v in obj.items()}
+    return obj
 
 
 def normalize_deck(deck: Dict, topic_title: str) -> Dict:
@@ -195,6 +225,9 @@ def normalize_deck(deck: Dict, topic_title: str) -> Dict:
     Гарантирует 100% заполненность и корректность всех полей для SpectrCarouselGenerator.
     Если LLM использовал альтернативные ключи или что-то пропустил — нормализатор всё исправит.
     """
+    # Сначала очищаем весь полученный JSON от случайных английских слов
+    deck = clean_russian_text(deck)
+
     slides = deck.get("slides", [])
     if not isinstance(slides, list) or len(slides) < 4:
         return _get_fallback_deck({"title": topic_title})
@@ -450,6 +483,7 @@ async def generate_carousel_deck(custom_topic: Optional[str] = None) -> Tuple[Di
             f"#нейробиология #мозг #сосуды #память #бехтерева #биохакинг #здоровье #продуктивность #концентрация"
         )
 
+    post_caption = clean_russian_text(post_caption)
     return deck_data, topic_title, post_caption
 
 
