@@ -328,8 +328,8 @@ class SpectrCarouselGenerator:
         draw: ImageDraw.ImageDraw,
         slide_idx: int,
         total_slides: int,
-        issue_code: str = "ISSUE №04 // PFC-PROTOCOL",
-        classification: str = "CLINICAL NEUROBIOLOGY",
+        issue_code: str = "ВЫПУСК №04 // НЕЙРО-ДОСЬЕ",
+        classification: str = "КЛИНИЧЕСКИЙ АРХИВ",
     ):
         """Рисует журнальную/клиническую рамку, колонтитулы, кроссхейры и номер слайда."""
         p = self.palette
@@ -370,7 +370,7 @@ class SpectrCarouselGenerator:
             draw.rectangle([bx, by, bx + bw, by + 34], fill=p["text_muted"])
             bx += bw + random.choice([2, 4])
 
-        draw.text((bx + 16, fy + 24), f"{self.brand_handle}   •   TG: {self.bot_handle}", font=f_meta, fill=p["text_muted"])
+        draw.text((bx + 16, fy + 24), f"{self.brand_handle}   •   ТГ: {self.bot_handle}", font=f_meta, fill=p["text_muted"])
 
         if slide_idx < total_slides - 1:
             swipe_txt = "ЛИСТАЙ ПРОТОКОЛ  →"
@@ -400,9 +400,9 @@ class SpectrCarouselGenerator:
 
         if mode == "eeg":
             channels = [
-                ("CH-01 // PFC GAMMA (40Hz)", 0.18, 22, p["accent"]),
-                ("CH-02 // THETA SYNC (6.5Hz)", 0.50, 9, p["text_main"]),
-                ("CH-03 // VAGUS / CORTISOL", 0.82, 4, p["text_muted"]),
+                ("КАНАЛ-01 // ПФК ГАММА (40Гц)", 0.18, 22, p["accent"]),
+                ("КАНАЛ-02 // ТЕТА-СИНХРОНИЗАЦИЯ (6.5Гц)", 0.50, 9, p["text_main"]),
+                ("КАНАЛ-03 // БЛУЖДАЮЩИЙ НЕРВ", 0.82, 4, p["text_muted"]),
             ]
             for label, rel_y, freq, col in channels:
                 cy = int(y1 + h * rel_y)
@@ -451,8 +451,8 @@ class SpectrCarouselGenerator:
                 col = p["accent"] if idx % 3 == 0 else p["text_main"]
                 draw.ellipse([nx - 5, ny - 5, nx + 5, ny + 5], fill=col)
 
-            draw.text((x1 + 20, y1 + 16), "FIG 1.4 // PREFRONTAL COHERENCE MAP", font=f_tiny, fill=p["text_muted"])
-            draw.text((x1 + 20, y2 - 30), "STATUS: HYPER-FOCUS ENGAGED (+530% NA)", font=f_tiny, fill=p["accent"])
+            draw.text((x1 + 20, y1 + 16), "СХЕМА 1.4 // КАРТА КОГЕРЕНТНОСТИ КОРЫ", font=f_tiny, fill=p["text_muted"])
+            draw.text((x1 + 20, y2 - 30), "СТАТУС: ФОКУС АКТИВИРОВАН (+530% НА)", font=f_tiny, fill=p["accent"])
 
     # --------------------------------------------------------------------------
     # УМНАЯ ВЕРСТКА ТЕКСТА С ПОДДЕРЖКОЙ АКЦЕНТОВ (*слово* или [accent]слово[/accent])
