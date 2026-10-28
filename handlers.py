@@ -2,7 +2,7 @@ import logging
 import os
 
 from aiogram import Router
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, InputMediaPhoto, Message
 from aiogram.filters import CommandStart, Command
 
 import database
@@ -147,11 +147,14 @@ async def cmd_help(message: Message) -> None:
         f"<b>Бесплатный канал:</b>\n{_rubric_lines(CONTENT_TYPES)}\n\n"
         f"<b>Премиум (в личку):</b>\n{_rubric_lines(PREMIUM_CONTENT_TYPES)}\n\n"
         "<b>Генерация:</b>\n"
-        "/generate \u2014 случайная рубрика\n"
-        "/generate \u0431\u0430\u0434\u044b \u2014 конкретная рубрика (можно по-русски)\n"
-        "/post \u0431\u0430\u0434\u044b \u2014 опубликовать в канал (админ)\n"
-        "/generate_premium \u2014 премиум пост\n"
-        "/post_premium \u2014 отправить в личку (админ)",
+        "/generate — случайная рубрика\n"
+        "/generate бады — конкретная рубрика (можно по-русски)\n"
+        "/post бады — опубликовать в канал (админ)\n"
+        "/generate_premium — премиум пост\n"
+        "/post_premium — отправить в личку (админ)\n\n"
+        "<b>Карусели Instagram (Cyan Edition):</b>\n"
+        "/carousel — сгенерировать 5 слайдов и текст поста в личку\n"
+        "/carousel [тема] — карусель на свою тему",
         parse_mode="HTML",
     )
 
@@ -318,6 +321,62 @@ async def cmd_post(message: Message) -> None:
             f"Проверь: права бота в канале <code>{CHANNEL_ID}</code> и модель в /diagnose.",
             parse_mode="HTML",
         )
+
+
+@router.message(Command("carousel", "daily"))
+async def cmd_carousel(message: Message) -> None:
+    """Генерирует и присылает 5 слайдов карусели Cyan Edition + текст поста в Telegram."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("⚠️ Эта команда доступна только администратору.")
+        return
+
+    custom_topic = None
+    if message.text and " " in message.text:
+        custom_topic = message.text.partition(" ")[2].strip()
+
+    wait_msg = await message.answer(
+        "⚡ <b>Генерирую карусель Spectr Mind (Cyan Edition)...</b>\n\n"
+        "<i>Подбираю тему из советского архива нейробиологии, генерирую структуру и рендерю 5 слайдов...</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        from carousel_tool.carousel_ai import generate_carousel_deck, render_carousel_images
+
+        deck_data, topic_title, caption = await generate_carousel_deck(custom_topic)
+
+        out_dir = os.path.join("carousel_tool", "output_tg")
+        os.makedirs(out_dir, exist_ok=True)
+        files = render_carousel_images(deck_data, output_dir=out_dir)
+
+        if not files or len(files) < 4:
+            await wait_msg.edit_text("❌ Ошибка: не удалось отрендерить слайды.")
+            return
+
+        # 1. Отправляем альбом из 5 слайдов
+        media_group = []
+        for idx, f_path in enumerate(files):
+            cap = f"⚡ <b>SPECTR MIND // {topic_title}</b>\nСлайды 1–{len(files)}" if idx == 0 else None
+            media_group.append(InputMediaPhoto(media=FSInputFile(f_path), caption=cap, parse_mode="HTML" if cap else None))
+
+        await message.answer_media_group(media=media_group)
+
+        # 2. Отправляем готовый текст поста для Instagram
+        caption_text = caption or (
+            f"🧠 {topic_title}\n\n"
+            "Листай карусель — там подробная схема из 3 шагов.\n\n"
+            "🎁 Бесплатный гайд по управлению префронтальной корой — в боте по ссылке в профиле.\n"
+            "Пиши слово НЕЙРО в комментарии — вышлем прямую ссылку в Директ!\n\n"
+            "#нейробиология #мозг #сосуды #память #бехтерева #биохакинг #здоровье"
+        )
+        await message.answer(
+            f"📋 <b>Текст для описания поста в Instagram (скопируй и выкладывай):</b>\n\n{caption_text}",
+            parse_mode=None,
+        )
+        await wait_msg.delete()
+    except Exception as e:
+        logger.exception("Carousel generation failed: %s", e)
+        await wait_msg.edit_text(f"❌ Ошибка генерации карусели: {e}")
 
 
 @router.message(Command("generate_premium"))
