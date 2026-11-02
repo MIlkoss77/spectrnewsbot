@@ -598,6 +598,72 @@ async def main() -> int:
     finally:
         handlers_module.DB_PATH = real_db_path
 
+    print("\n20. Автоворонка дожима (funnel.py)")
+    from datetime import datetime, timezone, timedelta
+    import aiosqlite
+    import funnel
+
+    # 1. build_welcome_keyboard
+    welcome_kb = config.build_welcome_keyboard()
+    w_rows = welcome_kb.inline_keyboard if welcome_kb else []
+    check("welcome-кнопка содержит только 1 ссылку", len(w_rows) == 1)
+    check("welcome-кнопка ведёт на канал", "Бесплатный канал" in w_rows[0][0].text)
+
+    # 2. Расчёт таймингов
+    fixed_time = datetime(2026, 11, 2, 10, 0, 0, tzinfo=timezone.utc)
+    ts1, ts2, ts3 = funnel.calculate_step_timestamps(fixed_time)
+    dt1 = datetime.fromtimestamp(ts1, tz=timezone.utc)
+    dt2 = datetime.fromtimestamp(ts2, tz=timezone.utc)
+    dt3 = datetime.fromtimestamp(ts3, tz=timezone.utc)
+    check("шаг 1 ровно через 15 минут", dt1 == fixed_time + timedelta(minutes=15))
+    msk_dt2 = dt2.astimezone(funnel.MSK_TZ)
+    check("шаг 2 на следующий день в 14:00 МСК", msk_dt2.day == 3 and msk_dt2.hour == 14 and msk_dt2.minute == 0)
+    check("шаг 3 ровно через 48 часов", dt3 == fixed_time + timedelta(hours=48))
+    check("шаги упорядочены по времени", ts1 < ts2 < ts3)
+
+    # 3. База данных воронки и idempotency
+    funnel_db = os.path.join(STATE_DIR, "funnel_test.db")
+    if os.path.exists(funnel_db):
+        os.remove(funnel_db)
+
+    await funnel.init_funnel_db(funnel_db)
+    sched_res = await funnel.schedule_user_funnel(user_id=777, base_time=fixed_time, db_path=funnel_db)
+    check("планирование первого пользователя успешно", sched_res is True)
+
+    sched_res2 = await funnel.schedule_user_funnel(user_id=777, base_time=fixed_time, db_path=funnel_db)
+    check("повторное планирование пропускает дубль", sched_res2 is False)
+
+    fstats = await funnel.get_funnel_stats(funnel_db)
+    check("в воронке ровно 1 пользователь", fstats["total_users"] == 1)
+    check("в ожидании 3 шага", fstats["statuses"].get("pending") == 3)
+
+    # 4. Клавиатуры шагов
+    kb1 = funnel.get_step_1_keyboard(user_id=777)
+    check("шаг 1: 1 кнопка со ссылкой на оплату", len(kb1.inline_keyboard) == 1 and "1 990" in kb1.inline_keyboard[0][0].text)
+
+    kb2 = funnel.get_step_2_keyboard(user_id=777)
+    check("шаг 2: 1 кнопка со скидкой 50%", len(kb2.inline_keyboard) == 1 and "50%" in kb2.inline_keyboard[0][0].text)
+
+    kb3 = funnel.get_step_3_keyboard(user_id=777)
+    check("шаг 3: 2 кнопки выбора (гайд и клуб)", len(kb3.inline_keyboard) == 2)
+    check("шаг 3: первая кнопка 1 990", "1 990" in kb3.inline_keyboard[0][0].text)
+    check("шаг 3: вторая кнопка 990", "990" in kb3.inline_keyboard[1][0].text)
+
+    # 5. Обработка наступивших шагов
+    fake_bot = FakeBot()
+    async with aiosqlite.connect(funnel_db) as db:
+        await db.execute("UPDATE funnel_steps SET send_at = 0 WHERE user_id = 777 AND step = 1")
+        await db.commit()
+
+    processed = await funnel.process_due_funnel_steps(fake_bot, db_path=funnel_db)
+    check("обработан 1 наступивший шаг", processed == 1)
+    check("сообщение отправлено ботом", len(fake_bot.messages) == 1)
+    check("в сообщении текст про дофамин", "D2" in fake_bot.messages[0]["text"])
+
+    stats_after = await funnel.get_funnel_stats(funnel_db)
+    check("статус шага 1 стал sent", stats_after["statuses"].get("sent") == 1)
+    check("в ожидании осталось 2 шага", stats_after["statuses"].get("pending") == 2)
+
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
         for line in FAILED:

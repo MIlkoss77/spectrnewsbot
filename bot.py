@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 
 from config import (
-    BOT_TOKEN, CHANNEL_ID, DB_PATH, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
+    BOT_TOKEN, CHANNEL_ID, DB_PATH, FUNNEL_DB_PATH, POST_TIMES, PROXY_URL, PREMIUM_CHANNEL_ID,
     PREMIUM_POST_TIMES, STARTUP_POST, describe_token,
 )
 from handlers import router
@@ -43,6 +43,15 @@ async def main() -> None:
     except Exception:
         logger.exception("Не удалось подготовить базу подписчиков")
 
+    # База автоворонки дожима и запуск фонового воркера (каждые 30 секунд)
+    from funnel import init_funnel_db, funnel_worker
+    try:
+        await init_funnel_db(FUNNEL_DB_PATH)
+    except Exception:
+        logger.exception("Не удалось подготовить базу воронки")
+
+    funnel_task = asyncio.create_task(funnel_worker(bot, db_path=FUNNEL_DB_PATH, poll_interval=30))
+
     setup_scheduler(bot)
     logger.info("Bot started. Channel: %s, schedule: %s", CHANNEL_ID, POST_TIMES)
     if PREMIUM_CHANNEL_ID:
@@ -69,6 +78,11 @@ async def main() -> None:
     try:
         await dp.start_polling(bot)
     finally:
+        funnel_task.cancel()
+        try:
+            await funnel_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await bot.session.close()
 
 
