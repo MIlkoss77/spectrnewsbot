@@ -71,27 +71,44 @@ LEAD_MAGNET_CAPTION = (
 )
 
 
-def build_lead_magnet_keyboard(user_id=None):
-    """Кнопки под бесплатным гайдом: канал, закрытый канал, полный нейрогайд."""
+FUNNEL_DB_PATH = os.getenv("FUNNEL_DB_PATH", "funnel_timers.db")
+
+
+def build_welcome_keyboard():
+    """Кнопка под первым сообщением с бесплатным гайдом: только бесплатный канал.
+
+    Кнопки оплаты убраны из первого сообщения, чтобы не перегружать пользователя.
+    Оплата перенесена в серию сообщений автоворонки.
+    """
+    return build_lead_magnet_keyboard(include_pay=False)
+
+
+def build_lead_magnet_keyboard(user_id=None, include_pay: bool = True):
+    """Кнопки под бесплатным гайдом.
+
+    При include_pay=False оставляет только кнопку бесплатного канала.
+    При include_pay=True включает также закрытый канал и полный нейрогайд.
+    """
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     rows = []
     if CHANNEL_LINK:
         rows.append([InlineKeyboardButton(text="\U0001f4da Бесплатный канал", url=CHANNEL_LINK)])
 
-    channel_link = payment_link_for("channel", user_id)
-    if channel_link:
-        label = "\U0001f512 Закрытый канал"
-        if PAID_CHANNEL_PRICE:
-            label += f" {PAID_CHANNEL_PRICE}"
-        rows.append([InlineKeyboardButton(text=label, url=channel_link)])
+    if include_pay:
+        channel_link = payment_link_for("channel", user_id)
+        if channel_link:
+            label = "\U0001f512 Закрытый канал"
+            if PAID_CHANNEL_PRICE:
+                label += f" {PAID_CHANNEL_PRICE}"
+            rows.append([InlineKeyboardButton(text=label, url=channel_link)])
 
-    guide_link = payment_link_for("guide", user_id)
-    if guide_link:
-        label = "\U0001f9e0 Полный нейрогайд"
-        if NEUROGUIDE_PRICE:
-            label += f" {NEUROGUIDE_PRICE}"
-        rows.append([InlineKeyboardButton(text=label, url=guide_link)])
+        guide_link = payment_link_for("guide", user_id)
+        if guide_link:
+            label = "\U0001f9e0 Полный нейрогайд"
+            if NEUROGUIDE_PRICE:
+                label += f" {NEUROGUIDE_PRICE}"
+            rows.append([InlineKeyboardButton(text=label, url=guide_link)])
 
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 

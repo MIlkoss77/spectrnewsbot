@@ -10,10 +10,12 @@ from config import (
     ADMIN_ID,
     CHANNEL_ID,
     DB_PATH,
+    FUNNEL_DB_PATH,
     LEAD_MAGNET_CAPTION,
     PDF_PATH,
     PREMIUM_CHANNEL_ID,
     build_lead_magnet_keyboard,
+    build_welcome_keyboard,
 )
 from content.generator import PollPost, generate_content, generate_premium_content
 from content.html_formatter import _balance_tags, format_post_html, split_post_for_photo
@@ -102,11 +104,52 @@ async def cmd_start(message: Message) -> None:
     await message.answer_document(
         document=FSInputFile(PDF_PATH, filename="SPECTR_Prefrontal_Protocol.pdf"),
         caption=LEAD_MAGNET_CAPTION,
-        reply_markup=build_lead_magnet_keyboard(user_id=user.id),
+        reply_markup=build_welcome_keyboard(),
         parse_mode="HTML",
     )
     logger.info("Гайд выдан пользователю %s (@%s), источник: %s",
                 user.id, user.username or "-", source or "без метки")
+
+    # Планируем автоворонку дожима (шаги 15 мин, завтра 14:00 МСК, 48 ч)
+    try:
+        from funnel import schedule_user_funnel
+        await schedule_user_funnel(user.id, db_path=FUNNEL_DB_PATH)
+    except Exception:
+        logger.exception("Не удалось запланировать автоворонку для %s", user.id)
+
+
+@router.message(Command("funnel"))
+async def cmd_funnel(message: Message) -> None:
+    """Статистика автоворонки дожима (админ)."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("⚠️ Эта команда только для админа.")
+        return
+    try:
+        from funnel import get_funnel_stats
+        stats = await get_funnel_stats(FUNNEL_DB_PATH)
+    except Exception:
+        logger.exception("Не удалось прочитать статистику воронки")
+        await message.answer("❌ Не удалось получить статистику воронки.")
+        return
+
+    total = stats.get("total_users", 0)
+    statuses = stats.get("statuses", {})
+    steps = stats.get("steps", {})
+
+    lines = [
+        "📊 <b>Статистика автоворонки дожима:</b>",
+        f"👥 Всего пользователей в воронке: <b>{total}</b>",
+        f"⏳ В ожидании (pending): <b>{statuses.get('pending', 0)}</b>",
+        f"✅ Отправлено (sent): <b>{statuses.get('sent', 0)}</b>",
+        f"🚫 Заблокировали (blocked): <b>{statuses.get('blocked', 0)}</b>",
+        f"⚠️ Ошибки (failed): <b>{statuses.get('failed', 0)}</b>",
+        "",
+        "<b>По шагам:</b>",
+        f"• Шаг 1 (+15 мин): отправлено <b>{steps.get(1, {}).get('sent', 0)}</b>, ждёт <b>{steps.get(1, {}).get('pending', 0)}</b>",
+        f"• Шаг 2 (завтра 14:00 МСК): отправлено <b>{steps.get(2, {}).get('sent', 0)}</b>, ждёт <b>{steps.get(2, {}).get('pending', 0)}</b>",
+        f"• Шаг 3 (+48 ч): отправлено <b>{steps.get(3, {}).get('sent', 0)}</b>, ждёт <b>{steps.get(3, {}).get('pending', 0)}</b>",
+    ]
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(Command("subscribers"))
@@ -154,7 +197,10 @@ async def cmd_help(message: Message) -> None:
         "/post_premium — отправить в личку (админ)\n\n"
         "<b>Карусели Instagram (Cyan Edition):</b>\n"
         "/carousel — сгенерировать 5 слайдов и текст поста в личку\n"
-        "/carousel [тема] — карусель на свою тему",
+        "/carousel [тема] — карусель на свою тему\n\n"
+        "<b>Аналитика и воронка (админ):</b>\n"
+        "/subscribers — статистика подписчиков и источников\n"
+        "/funnel — статистика автоворонки дожима",
         parse_mode="HTML",
     )
 

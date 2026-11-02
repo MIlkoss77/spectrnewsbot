@@ -11,6 +11,7 @@ topic_state.json
 post_counter.txt
 premium_counter.txt
 spectrmind.db
+funnel_timers.db
 
 # offline self-check scratch state
 .selfcheck_state/
