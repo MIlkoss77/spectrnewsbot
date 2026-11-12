@@ -356,6 +356,8 @@ async def funnel_worker(bot: Bot, db_path: str = FUNNEL_DB_PATH, poll_interval: 
     while True:
         try:
             await process_due_funnel_steps(bot, db_path)
+            from trial_club import process_club_trials
+            await process_club_trials(bot, db_path)
         except asyncio.CancelledError:
             logger.info("Воркер автоворонки остановлен по отмене задачи")
             break

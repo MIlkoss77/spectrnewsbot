@@ -87,6 +87,41 @@ async def cmd_start(message: Message) -> None:
         # Учёт подписчика не должен мешать выдаче гайда.
         logger.exception("Не удалось сохранить подписчика %s", user.id)
 
+    # Активация 7-дневного бонусного доступа в SPECTR CLUB для покупателей гайда
+    if source.lower().startswith("trial7"):
+        from trial_club import activate_7day_trial, build_renew_keyboard
+        ok, payload = await activate_7day_trial(
+            message.bot,
+            user_id=user.id,
+            username=user.username,
+            source=source,
+            db_path=FUNNEL_DB_PATH,
+        )
+        if ok:
+            from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔒 Войти в SPECTR CLUB (7 дней)", url=payload)]]
+            )
+            await message.answer(
+                "🎁 <b>Бонус активирован: 7 дней в SPECTR CLUB</b>\n\n"
+                "Твоя персональная одноразовая ссылка-пропуск готова.\n\n"
+                "<b>Условия доступа:</b>\n"
+                "• Доступ открыт ровно на <b>7 дней</b> с момента активации.\n"
+                "• За 24 часа до окончания бот напомнит и предложит продлить участие (990 ₽/мес).\n"
+                "• Через 7 дней доступ закрывается автоматически.\n\n"
+                "Жми кнопку ниже, чтобы вступить 👇",
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+        else:
+            await message.answer(
+                f"ℹ️ {payload}",
+                parse_mode="HTML",
+                reply_markup=build_renew_keyboard(user.id),
+                disable_web_page_preview=True,
+            )
+        return
+
     if not os.path.exists(PDF_PATH):
         logger.error("PDF не найден: %s", PDF_PATH)
         await message.answer(
@@ -150,6 +185,49 @@ async def cmd_funnel(message: Message) -> None:
         f"• Шаг 3 (+48 ч): отправлено <b>{steps.get(3, {}).get('sent', 0)}</b>, ждёт <b>{steps.get(3, {}).get('pending', 0)}</b>",
     ]
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("trials"))
+async def cmd_trials(message: Message) -> None:
+    """Статистика 7-дневных триалов в SPECTR CLUB (админ)."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("⚠️ Эта команда только для админа.")
+        return
+    try:
+        from trial_club import get_trial_stats
+        stats = await get_trial_stats(FUNNEL_DB_PATH)
+    except Exception:
+        logger.exception("Не удалось прочитать статистику триалов")
+        await message.answer("❌ Не удалось получить статистику триалов.")
+        return
+
+    await message.answer(
+        "🎟 <b>7-дневные доступы в SPECTR CLUB:</b>\n\n"
+        f"🟢 Активны сейчас: <b>{stats.get('active', 0)}</b>\n"
+        f"⌛️ Завершились (исключены): <b>{stats.get('expired', 0)}</b>\n"
+        f"💎 Продлили подписку: <b>{stats.get('converted', 0)}</b>\n\n"
+        "<i>Чтобы не удалять оплатившего подписчика: /paid USER_ID</i>",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("paid"))
+async def cmd_paid(message: Message) -> None:
+    """Отметить пользователя как оплатившего клуб, чтобы отменить автокик (админ)."""
+    if not _is_admin(message.from_user.id):
+        await message.answer("⚠️ Эта команда только для админа.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip().isdigit():
+        await message.answer("Использование: <code>/paid 123456789</code>", parse_mode="HTML")
+        return
+    target_id = int(parts[1].strip())
+    from trial_club import mark_trial_converted
+    updated = await mark_trial_converted(target_id, db_path=FUNNEL_DB_PATH)
+    if updated:
+        await message.answer(f"✅ Пользователь <code>{target_id}</code> отмечен как оплативший (не будет удалён).", parse_mode="HTML")
+    else:
+        await message.answer(f"ℹ️ Пользователь <code>{target_id}</code> не найден среди триалов.", parse_mode="HTML")
 
 
 @router.message(Command("subscribers"))
