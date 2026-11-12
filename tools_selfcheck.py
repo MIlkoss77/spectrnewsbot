@@ -610,14 +610,15 @@ async def main() -> int:
     check("welcome-кнопка ведёт на канал", "Бесплатный канал" in w_rows[0][0].text)
 
     # 2. Расчёт таймингов
-    fixed_time = datetime(2026, 11, 2, 10, 0, 0, tzinfo=timezone.utc)
+    fixed_time = (datetime.now(timezone.utc) + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
     ts1, ts2, ts3 = funnel.calculate_step_timestamps(fixed_time)
     dt1 = datetime.fromtimestamp(ts1, tz=timezone.utc)
     dt2 = datetime.fromtimestamp(ts2, tz=timezone.utc)
     dt3 = datetime.fromtimestamp(ts3, tz=timezone.utc)
     check("шаг 1 ровно через 15 минут", dt1 == fixed_time + timedelta(minutes=15))
     msk_dt2 = dt2.astimezone(funnel.MSK_TZ)
-    check("шаг 2 на следующий день в 14:00 МСК", msk_dt2.day == 3 and msk_dt2.hour == 14 and msk_dt2.minute == 0)
+    expected_next_day = (fixed_time.astimezone(funnel.MSK_TZ) + timedelta(days=1)).day
+    check("шаг 2 на следующий день в 14:00 МСК", msk_dt2.day == expected_next_day and msk_dt2.hour == 14 and msk_dt2.minute == 0)
     check("шаг 3 ровно через 48 часов", dt3 == fixed_time + timedelta(hours=48))
     check("шаги упорядочены по времени", ts1 < ts2 < ts3)
 
@@ -663,6 +664,74 @@ async def main() -> int:
     stats_after = await funnel.get_funnel_stats(funnel_db)
     check("статус шага 1 стал sent", stats_after["statuses"].get("sent") == 1)
     check("в ожидании осталось 2 шага", stats_after["statuses"].get("pending") == 2)
+
+    print("\n21. Бонусный доступ в SPECTR CLUB на 7 дней (trial_club.py)")
+    import trial_club
+
+    class TrialFakeBot(FakeBot):
+        def __init__(self):
+            super().__init__()
+            self.banned = []
+            self.unbanned = []
+
+        async def create_chat_invite_link(self, chat_id, member_limit=1, name=""):
+            class _Invite:
+                invite_link = "https://t.me/+test_trial_7d"
+            return _Invite()
+
+        async def ban_chat_member(self, chat_id, user_id):
+            self.banned.append((chat_id, user_id))
+
+        async def unban_chat_member(self, chat_id, user_id, only_if_banned=True):
+            self.unbanned.append((chat_id, user_id))
+
+    trial_bot = TrialFakeBot()
+    real_prem = config.PREMIUM_CHANNEL_ID
+    config.PREMIUM_CHANNEL_ID = "-1001234567890"
+    try:
+        t0 = 1_700_000_000
+        ok1, link1 = await trial_club.activate_7day_trial(
+            trial_bot, user_id=888, username="buyer1", db_path=funnel_db, now_ts=t0
+        )
+        check("триал на 7 дней выдан", ok1 is True and "t.me/+" in link1)
+
+        ok2, msg2 = await trial_club.activate_7day_trial(
+            trial_bot, user_id=888, username="buyer1", db_path=funnel_db, now_ts=t0 + 3600
+        )
+        check("повторная активация блокируется", ok2 is False and "уже активирован" in msg2)
+
+        # На 6-й день (за 12 часов до истечения) — должно уйти напоминание
+        rem, exp = await trial_club.process_club_trials(
+            trial_bot, db_path=funnel_db, now_ts=t0 + 7 * 86400 - 12 * 3600
+        )
+        check("на 6-й день отправлено 1 напоминание", rem == 1 and exp == 0)
+        check("напоминание содержит кнопку продления", "SPECTR CLUB" in trial_bot.messages[-1]["text"])
+
+        # На 7-й день — должно исключить и пометить expired
+        rem2, exp2 = await trial_club.process_club_trials(
+            trial_bot, db_path=funnel_db, now_ts=t0 + 7 * 86400 + 60
+        )
+        check("через 7 дней триал завершён", rem2 == 0 and exp2 == 1)
+        check("пользователь исключён из канала (ban+unban)", len(trial_bot.banned) == 1 and len(trial_bot.unbanned) == 1)
+
+        # Повторная попытка после истечения запрещена
+        ok3, msg3 = await trial_club.activate_7day_trial(
+            trial_bot, user_id=888, username="buyer1", db_path=funnel_db, now_ts=t0 + 8 * 86400
+        )
+        check("после истечения повторный триал не выдаётся", ok3 is False and "использован ранее" in msg3)
+
+        # Оплативший пользователь (converted) не исключается
+        await trial_club.activate_7day_trial(
+            trial_bot, user_id=999, username="buyer2", db_path=funnel_db, now_ts=t0
+        )
+        converted = await trial_club.mark_trial_converted(999, db_path=funnel_db)
+        check("статус converted установлен", converted is True)
+        rem3, exp3 = await trial_club.process_club_trials(
+            trial_bot, db_path=funnel_db, now_ts=t0 + 7 * 86400 + 60
+        )
+        check("оплативший пользователь не исключается", exp3 == 0 and len(trial_bot.banned) == 1)
+    finally:
+        config.PREMIUM_CHANNEL_ID = real_prem
 
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
     if FAILED:
