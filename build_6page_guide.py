@@ -49,14 +49,11 @@ MT   = 18 * mm      # margin top
 MB   = 18 * mm      # margin bottom
 UW   = PAGE_W - 2 * MX   # usable width
 
-ROBOKASSA_URL = (
-    "https://auth.robokassa.ru/Merchant/Index.aspx?"
-    "MerchantLogin=Spectrmind&OutSum=1990.00&InvId=990001&"
-    "SignatureValue=563a85cd72e55528c3b58858c2bbf7bb&"
-    "Description=SpectrMind%3A+%D0%BF%D0%BE%D0%BB%D0%BD%D1%8B%D0%B9+"
-    "%D0%BD%D0%B5%D0%B9%D1%80%D0%BE%D0%B3%D0%B0%D0%B9%D0%B4&"
-    "Culture=ru&Encoding=utf-8"
-)
+ROBOKASSA_URL = "https://spectrmind.ru/api/pay/neuro-hacker"
+
+TG_CHANNEL_URL = "https://t.me/ruspectrmind"
+INSTAGRAM_URL  = "https://www.instagram.com/spectrmind.ru/"
+YOUTUBE_URL    = "https://www.youtube.com/@spectrmind"
 
 FONT_DIR = r"C:\Windows\Fonts"
 
@@ -130,17 +127,29 @@ def make_styles(f: str) -> dict:
                                      textColor=TEXT_DARK, alignment=TA_CENTER),
         "cta_note":   ParagraphStyle("cn", fontName=f, fontSize=7, leading=9.5,
                                      textColor=TEXT_MUTED, alignment=TA_CENTER, spaceBefore=1.5*mm),
+        "soc_label":  ParagraphStyle("sl", fontName=f + "-Bold", fontSize=7.5, leading=10,
+                                     textColor=TEXT_BODY, alignment=TA_CENTER),
+        "soc_btn_tg": ParagraphStyle("sbt", fontName=f + "-Bold", fontSize=8.5, leading=11,
+                                     textColor=CYAN, alignment=TA_CENTER),
+        "soc_btn":    ParagraphStyle("sb", fontName=f + "-Bold", fontSize=8.5, leading=11,
+                                     textColor=TEXT_WHITE, alignment=TA_CENTER),
+        "soc_handles": ParagraphStyle("sh", fontName=f, fontSize=7, leading=9.5,
+                                      textColor=TEXT_MUTED, alignment=TA_CENTER),
     }
 
 
 # ── Компоненты ───────────────────────────────────────────────────────────────
 class ButtonLink(Flowable):
     """Кнопка с активной ссылкой."""
-    def __init__(self, text, url, width, height, style, color=CYAN):
+    def __init__(self, text, url, width, height, style, color=CYAN,
+                 border_color=None, border_width=0.75, radius=5):
         super().__init__()
         self.text, self.url = text, url
         self.width, self.height = width, height
         self.style, self.color = style, color
+        self.border_color = border_color
+        self.border_width = border_width
+        self.radius = radius
 
     def wrap(self, aw, ah):
         return self.width, self.height
@@ -149,7 +158,12 @@ class ButtonLink(Flowable):
         c = self.canv
         c.saveState()
         c.setFillColor(self.color)
-        c.roundRect(0, 0, self.width, self.height, 5, stroke=0, fill=1)
+        has_stroke = 1 if self.border_color else 0
+        if self.border_color:
+            c.setStrokeColor(self.border_color)
+            c.setLineWidth(self.border_width)
+        c.roundRect(0, 0, self.width, self.height, self.radius,
+                    stroke=has_stroke, fill=1)
         p = Paragraph(self.text, self.style)
         _, h = p.wrap(self.width, self.height)
         p.drawOn(c, 0, (self.height - h) / 2.0)
@@ -670,6 +684,50 @@ def page6_offer(S, image_path):
         color=CYAN,
     )
 
+    gap = 3 * mm
+    soc_w = (UW - 2 * gap) / 3.0
+    soc_h = 8.5 * mm
+    soc_buttons = Table(
+        [[
+            ButtonLink(
+                "Telegram-канал  →", TG_CHANNEL_URL,
+                width=soc_w, height=soc_h, style=S["soc_btn_tg"],
+                color=BG_CARD_ALT, border_color=CYAN, border_width=0.8, radius=4,
+            ),
+            "",
+            ButtonLink(
+                "Instagram  →", INSTAGRAM_URL,
+                width=soc_w, height=soc_h, style=S["soc_btn"],
+                color=BG_CARD, border_color=HexColor("#2C2C3E"), border_width=0.7, radius=4,
+            ),
+            "",
+            ButtonLink(
+                "YouTube  →", YOUTUBE_URL,
+                width=soc_w, height=soc_h, style=S["soc_btn"],
+                color=BG_CARD, border_color=HexColor("#2C2C3E"), border_width=0.7, radius=4,
+            ),
+        ]],
+        colWidths=[soc_w, gap, soc_w, gap, soc_w],
+        style=TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]),
+    )
+
+    social_divider = Table(
+        [[""]],
+        colWidths=[UW],
+        rowHeights=[0.4],
+        style=TableStyle([
+            ("LINEABOVE", (0, 0), (-1, -1), 0.5, BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]),
+    )
+
     return [
         Spacer(1, 2*mm),
         Paragraph("СЛЕДУЮЩИЙ УРОВЕНЬ // ПОЛНАЯ СИСТЕМА", S["cta_badge"]),
@@ -681,17 +739,27 @@ def page6_offer(S, image_path):
             S["cta_sub"]),
         Spacer(1, 1*mm),
         RLImage(image_path, width=img_w, height=img_h),
-        Spacer(1, 2.5*mm),
+        Spacer(1, 2*mm),
         offer_card,
-        Spacer(1, 2.5*mm),
+        Spacer(1, 2*mm),
         price_block,
-        Spacer(1, 2.5*mm),
+        Spacer(1, 2*mm),
         btn,
-        Spacer(1, 1*mm),
+        Spacer(1, 0.8*mm),
         Paragraph(
             "Безопасная оплата картами (МИР, СБП, Visa/Mastercard) через Robokassa.<br/>"
             "Доступ к полной версии и закрытому клубу приходит на email мгновенно после оплаты.",
             S["cta_note"]),
+        Spacer(1, 3*mm),
+        social_divider,
+        Spacer(1, 2.5*mm),
+        Paragraph("БЕСПЛАТНЫЕ РАЗБОРЫ И ЕЖЕДНЕВНЫЕ ПРОТОКОЛЫ В НАШИХ СОЦСЕТЯХ:", S["soc_label"]),
+        Spacer(1, 2*mm),
+        soc_buttons,
+        Spacer(1, 1.5*mm),
+        Paragraph(
+            "TG: @ruspectrmind   •   IG: @spectrmind.ru   •   YT: @spectrmind",
+            S["soc_handles"]),
     ]
 
 
