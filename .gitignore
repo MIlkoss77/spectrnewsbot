@@ -31,3 +31,6 @@ updated_page_*.png
 freeguide_backup*.pdf
 prefrontal_guide_draft.pdf
 product_cover.jpg
+
+# local session handoff (keep strictly local)
+PROJECT_STATUS.md
