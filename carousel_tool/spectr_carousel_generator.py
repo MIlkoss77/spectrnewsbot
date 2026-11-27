@@ -471,6 +471,58 @@ class SpectrCarouselGenerator:
                     tokens.append((word, is_acc))
         return tokens
 
+    def _fit_font(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        role: str,
+        start_size: int,
+        min_size: int,
+        max_width: int,
+    ) -> ImageFont.FreeTypeFont:
+        """Подбирает максимальный размер шрифта, чтобы строка поместилась в max_width."""
+        for size in range(start_size, min_size - 1, -2):
+            font = self._font(role, size)
+            if draw.textlength(text, font=font) <= max_width:
+                return font
+        return self._font(role, min_size)
+
+    def _measure_rich_height(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        max_width: int,
+        font: ImageFont.FreeTypeFont,
+        line_height: int,
+    ) -> int:
+        """Вычисляет точную высоту блока текста после переноса строк."""
+        if not text:
+            return 0
+        space_w = draw.textlength(" ", font=font)
+        total_h = 0
+        for para in text.split("\n"):
+            if not para.strip():
+                total_h += int(line_height * 0.45)
+                continue
+            tokens = self._tokenize_styled_text(para)
+            line_count = 0
+            current_w = 0.0
+            has_words = False
+            for word, _ in tokens:
+                ww = draw.textlength(word, font=font)
+                needed = ww if not has_words else (space_w + ww)
+                if current_w + needed <= max_width or not has_words:
+                    current_w += needed
+                    has_words = True
+                else:
+                    line_count += 1
+                    current_w = ww
+                    has_words = True
+            if has_words:
+                line_count += 1
+            total_h += line_count * line_height + int(line_height * 0.25)
+        return total_h
+
     def _draw_rich_paragraph(
         self,
         draw: ImageDraw.ImageDraw,
@@ -541,8 +593,8 @@ class SpectrCarouselGenerator:
             draw,
             slide_idx=idx,
             total_slides=total,
-            issue_code=meta.get("issue_code", "ISSUE №04 // NEURO-DOSSIER"),
-            classification=meta.get("classification", "CLINICAL ARCHIVE"),
+            issue_code=meta.get("issue_code", "ВЫПУСК №04 // НЕЙРО-ДОСЬЕ"),
+            classification=meta.get("classification", "КЛИНИЧЕСКИЙ АРХИВ"),
         )
 
         inner_x = self.MARGIN_X + 44
@@ -636,34 +688,60 @@ class SpectrCarouselGenerator:
                     accent_color=p["accent"],
                 )
 
-            metrics = slide.get("metrics", [])
+            metrics = (slide.get("metrics") or [])[:3]
             if metrics:
                 top_y += 14
-                card_h = 124
                 col_w = inner_w // len(metrics)
+                col_inner_w = col_w - 36
+                f_lbl = self._font("mono", 14)
+                lbl_lh = 20
+
+                # Заранее измеряем высоту подписей, чтобы карточки никогда не обрезались
+                max_lbl_h = 20
+                metric_specs = []
+                for m in metrics:
+                    val_str = str(m.get("value", "")).strip()
+                    lbl_str = str(m.get("label", "")).strip().upper()
+                    f_val = self._fit_font(draw, val_str, "primary", 38, 22, col_inner_w)
+                    lbl_h = self._measure_rich_height(draw, lbl_str, col_inner_w, f_lbl, lbl_lh)
+                    max_lbl_h = max(max_lbl_h, lbl_h)
+                    metric_specs.append((val_str, f_val, lbl_str))
+
+                card_h = max(124, 78 + max_lbl_h + 14)
                 draw.rectangle(
                     [inner_x, top_y, inner_x + inner_w, top_y + card_h],
                     fill=p["bg_Card"],
                     outline=p["border"],
                     width=1,
                 )
-                f_val = self._font("primary", 40)
-                f_lbl = self._font("mono", 15)
-                for m_idx, m in enumerate(metrics):
+                for m_idx, (val_str, f_val, lbl_str) in enumerate(metric_specs):
                     mx_col = inner_x + m_idx * col_w
                     if m_idx > 0:
                         draw.line([(mx_col, top_y), (mx_col, top_y + card_h)], fill=p["border"], width=1)
-                    draw.text((mx_col + 20, top_y + 18), str(m.get("value", "")), font=f_val, fill=p["accent"])
-                    draw.text((mx_col + 20, top_y + 78), str(m.get("label", "")).upper(), font=f_lbl, fill=p["text_muted"])
+                    draw.text((mx_col + 18, top_y + 18), val_str, font=f_val, fill=p["accent"])
+                    self._draw_rich_paragraph(
+                        draw,
+                        lbl_str,
+                        x=mx_col + 18,
+                        y=top_y + 74,
+                        max_width=col_inner_w,
+                        font=f_lbl,
+                        line_height=lbl_lh,
+                        default_color=p["text_muted"],
+                        accent_color=p["accent"],
+                    )
                 top_y += card_h + 20
 
             callout_text = slide.get("callout") or slide.get("quote") or slide.get("citation") or ""
             if callout_text:
-                c_top = max(top_y + 10, self.HEIGHT - self.MARGIN_BOTTOM - 225)
-                c_bot = self.HEIGHT - self.MARGIN_BOTTOM - 100
+                f_call = self._font("secondary", 24)
+                call_h = self._measure_rich_height(draw, callout_text, inner_w - 44, f_call, 32)
+                c_bot = self.HEIGHT - self.MARGIN_BOTTOM - 96
+                c_top = max(top_y + 8, min(c_bot - max(108, call_h + 28), self.HEIGHT - self.MARGIN_BOTTOM - 225))
+                if c_bot - c_top < 96:
+                    c_bot = min(self.HEIGHT - self.MARGIN_BOTTOM - 76, c_top + 96)
                 draw.rectangle([inner_x, c_top, inner_x + inner_w, c_bot], fill=p["bg_Card"], outline=p["border"], width=1)
                 draw.rectangle([inner_x, c_top, inner_x + 6, c_bot], fill=p["accent"])
-                f_call = self._font("secondary", 24)
                 self._draw_rich_paragraph(
                     draw,
                     callout_text,
@@ -671,7 +749,7 @@ class SpectrCarouselGenerator:
                     y=c_top + 18,
                     max_width=inner_w - 44,
                     font=f_call,
-                    line_height=33,
+                    line_height=32,
                     default_color=p["text_muted"],
                     accent_color=p["text_main"],
                 )
@@ -747,13 +825,16 @@ class SpectrCarouselGenerator:
 
                 if tag_str:
                     draw.line([(inner_x + 22, box_top + 94), (inner_x + idx_w - 22, box_top + 94)], fill=p["border"], width=1)
-                    tw = draw.textlength(tag_str, font=f_step_tag)
-                    draw.text((sidebar_cx - tw / 2.0, box_top + 108), tag_str, font=f_step_tag, fill=p["text_muted"])
+                    f_tag_fit = self._fit_font(draw, tag_str, "mono", 14, 10, idx_w - 16)
+                    tw = draw.textlength(tag_str, font=f_tag_fit)
+                    draw.text((sidebar_cx - tw / 2.0, box_top + 108), tag_str, font=f_tag_fit, fill=p["text_muted"])
 
-                # Контент справа от плашки — никогда не пересекается
+                # Контент справа от плашки — никогда не пересекается и не вылезает за край
                 tx = inner_x + idx_w + 26
                 tw_content = inner_w - idx_w - 46
-                draw.text((tx, box_top + 22), step.get("heading", ""), font=f_step_title, fill=p["text_main"])
+                heading_str = str(step.get("heading", ""))
+                f_heading_fit = self._fit_font(draw, heading_str, "secondary", 28, 20, tw_content)
+                draw.text((tx, box_top + 22), heading_str, font=f_heading_fit, fill=p["text_main"])
                 self._draw_rich_paragraph(
                     draw,
                     step.get("text", ""),
@@ -768,8 +849,10 @@ class SpectrCarouselGenerator:
                 top_y += card_h + gap
 
         elif slide_type == "cta":
-            title_text = slide.get("title") or slide.get("heading") or slide.get("header") or "ЗАБЕРИ ПОЛНЫЙ НЕЙРО-ПРОТОКОЛ В TELEGRAM"
-            f_title = self._font("primary", slide.get("title_size", 54))
+            title_text = slide.get("title") or slide.get("heading") or slide.get("header") or "ЗАБЕРИ ПОЛНЫЙ НЕЙРО-ПРОТОКОЛ В НАШЕМ *TELEGRAM-БОТЕ*"
+            default_tsize = 48 if len(title_text) > 42 else 54
+            tsize = slide.get("title_size", default_tsize)
+            f_title = self._font("primary", tsize)
             top_y = self._draw_rich_paragraph(
                 draw,
                 title_text,
@@ -777,16 +860,16 @@ class SpectrCarouselGenerator:
                 y=top_y,
                 max_width=inner_w,
                 font=f_title,
-                line_height=64,
+                line_height=int(tsize * 1.16),
                 default_color=p["text_main"],
                 accent_color=p["accent"],
                 highlight_box=not p["is_dark"],
             )
-            top_y += 16
+            top_y += 14
 
             body_text = slide.get("body") or slide.get("text") or slide.get("description") or ""
             if body_text:
-                f_body = self._font("secondary", 29)
+                f_body = self._font("secondary", 28)
                 top_y = self._draw_rich_paragraph(
                     draw,
                     body_text,
@@ -794,57 +877,90 @@ class SpectrCarouselGenerator:
                     y=top_y,
                     max_width=inner_w,
                     font=f_body,
-                    line_height=40,
+                    line_height=38,
                     default_color=p["text_muted"],
                     accent_color=p["text_main"],
                 )
-            top_y += 22
+            top_y += 20
 
-            box_h = 250
+            f_mono_b = self._font("mono", 19)
+            f_cta_s = self._font("secondary", 24)
+            lead_mag = str(slide.get("lead_magnet_title") or slide.get("lead_magnet") or "Гайд «Нейро-Стек: Управление ПФК»").strip()
+            box_inner_w = inner_w - 64
+
+            # Подбираем шрифт под заголовок гайда или переносим строки, чтобы никогда не вылезал за рамку
+            f_cta_h = self._fit_font(draw, lead_mag, "primary", 36, 26, box_inner_w)
+            if draw.textlength(lead_mag, font=f_cta_h) <= box_inner_w:
+                lead_h = 46
+                lead_wrapped = False
+            else:
+                f_cta_h = self._font("primary", 28)
+                lead_h = max(46, self._measure_rich_height(draw, lead_mag, box_inner_w, f_cta_h, 35))
+                lead_wrapped = True
+
+            btn_h = 72
+            btn_offset_y = 60 + lead_h + 18
+            box_h = btn_offset_y + btn_h + 28
+
             draw.rectangle(
                 [inner_x, top_y, inner_x + inner_w, top_y + box_h],
                 fill=p["bg_Card"],
                 outline=p["accent"],
                 width=2,
             )
-            f_mono_b = self._font("mono", 19)
-            f_cta_h = self._font("primary", 36)
-            f_cta_s = self._font("secondary", 25)
-
             draw.text(
-                (inner_x + 32, top_y + 24),
-                "БЕСПЛАТНЫЙ ДОСТУП // PDF-ДОСЬЕ (4 СТР.)",
+                (inner_x + 32, top_y + 22),
+                "БЕСПЛАТНЫЙ ДОСТУП // PDF-ДОСЬЕ (6 СТР.)",
                 font=f_mono_b,
                 fill=p["accent"],
             )
-            lead_mag = slide.get("lead_magnet_title") or slide.get("lead_magnet") or "Гайд «Нейро-Стек: Управление ПФК»"
-            draw.text(
-                (inner_x + 32, top_y + 62),
-                lead_mag,
-                font=f_cta_h,
-                fill=p["text_main"],
-            )
+            if lead_wrapped:
+                self._draw_rich_paragraph(
+                    draw,
+                    lead_mag,
+                    x=inner_x + 32,
+                    y=top_y + 58,
+                    max_width=box_inner_w,
+                    font=f_cta_h,
+                    line_height=35,
+                    default_color=p["text_main"],
+                    accent_color=p["accent"],
+                )
+            else:
+                draw.text(
+                    (inner_x + 32, top_y + 60),
+                    lead_mag,
+                    font=f_cta_h,
+                    fill=p["text_main"],
+                )
 
-            btn_y = top_y + 148
-            btn_h = 72
+            btn_y = top_y + btn_offset_y
             btn_bg = p.get("button_bg", p["accent"])
             btn_fg = p.get("button_fg", (10, 11, 14) if p["is_dark"] else (244, 241, 234))
             draw.rectangle(
                 [inner_x + 32, btn_y, inner_x + inner_w - 32, btn_y + btn_h],
                 fill=btn_bg,
             )
-            btn_text = slide.get("cta_button") or slide.get("button_text") or "ССЫЛКА В ШАПКЕ ПРОФИЛЯ -> @SPECTRNEWSBOT"
-            btw = draw.textlength(btn_text, font=f_mono_b)
+            btn_text = str(slide.get("cta_button") or slide.get("button_text") or "ПИШИ «НЕЙРО» В КОММЕНТАРИИ ->").strip()
+            f_btn = self._fit_font(draw, btn_text, "mono", 20, 13, inner_w - 88)
+            btw = draw.textlength(btn_text, font=f_btn)
+            bbox = draw.textbbox((0, 0), btn_text, font=f_btn)
+            bth = bbox[3] - bbox[1]
             draw.text(
-                (inner_x + (inner_w - int(btw)) // 2, btn_y + 24),
+                (inner_x + (inner_w - int(btw)) // 2, btn_y + (btn_h - bth) // 2 - bbox[1]),
                 btn_text,
-                font=f_mono_b,
+                font=f_btn,
                 fill=btn_fg,
             )
 
-            top_y += box_h + 24
+            top_y += box_h + 22
             foot_note = slide.get("footer_note") or slide.get("footer") or ""
             if foot_note:
+                avail_foot = (self.HEIGHT - self.MARGIN_BOTTOM - 92) - top_y
+                foot_lh = 34
+                if self._measure_rich_height(draw, foot_note, inner_w, f_cta_s, foot_lh) > avail_foot:
+                    f_cta_s = self._font("secondary", 21)
+                    foot_lh = 29
                 self._draw_rich_paragraph(
                     draw,
                     foot_note,
@@ -852,7 +968,7 @@ class SpectrCarouselGenerator:
                     y=top_y,
                     max_width=inner_w,
                     font=f_cta_s,
-                    line_height=35,
+                    line_height=foot_lh,
                     default_color=p["text_muted"],
                     accent_color=p["accent"],
                 )
@@ -880,8 +996,8 @@ class SpectrCarouselGenerator:
 # ==============================================================================
 SAMPLE_DECK = {
     "meta": {
-        "issue_code": "VOL. 07 // PFC DEPLETION",
-        "classification": "SPECTR LAB // DOSSIER",
+        "issue_code": "ВЫПУСК №07 // ИСТОЩЕНИЕ ПФК",
+        "classification": "КЛИНИЧЕСКИЙ АРХИВ",
     },
     "slides": [
         {
@@ -896,7 +1012,7 @@ SAMPLE_DECK = {
         },
         {
             "type": "content",
-            "badge": "ФАКТ №01 // DECISION FATIGUE",
+            "badge": "ФАКТ №01 // УСТАЛОСТЬ ОТ РЕШЕНИЙ",
             "title": "У КРИСТОФЕРА НОЛАНА НЕТ *СМАРТФОНА* И РАБОЧЕЙ ПОЧТЫ",
             "body": "Префронтальная кора (ПФК) занимает всего 4% объема тела, но потребляет до *25% всей глюкозы* и кислорода.\n\nКаждое уведомление, скролл ленты или выбор ответа в чате запускает цикл переключения внимания. Через 90 минут такого режима уровень *глутамата* в синапсах достигает порога токсической усталости.",
             "metrics": [
@@ -943,10 +1059,10 @@ SAMPLE_DECK = {
             "type": "cta",
             "badge": "БЕСПЛАТНЫЙ ПРОТОКОЛ В TELEGRAM",
             "title": "ЗАБЕРИ ПОЛНЫЙ ПРОТОКОЛ РАЗГОНА МОЗГА ЗА *120 СЕКУНД*",
-            "body": "Мы упаковали пошаговую схему управления префронтальной корой, таблицы адаптогенов и утренний чек-лист в закрытый 4-страничный PDF-файл.",
+            "body": "Мы упаковали пошаговую схему управления префронтальной корой, таблицы адаптогенов и утренний чек-лист в закрытый 6-страничный PDF-файл.",
             "lead_magnet_title": "Гайд «Нейро-Стек: Управление ПФК»",
-            "cta_button": "ССЫЛКА В ШАПКЕ ПРОФИЛЯ -> @SPECTRNEWSBOT",
-            "footer_note": "Или напиши кодовое слово *НЕЙРО* в комментарии — пришлем прямую ссылку на выдачу PDF в Директ за 5 секунд.",
+            "cta_button": "ПИШИ «НЕЙРО» В КОММЕНТАРИИ ->",
+            "footer_note": "Напиши кодовое слово *НЕЙРО* в комментарии или в Директ — бот @spectrnewsbot пришлет прямую ссылку на PDF за 5 секунд.",
         },
     ],
 }

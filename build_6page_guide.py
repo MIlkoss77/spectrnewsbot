@@ -192,7 +192,13 @@ def card(flowables, bg=BG_CARD, border=BORDER, left_color=None, left_w=0, pad=9)
     return t
 
 
-def dark_bg(font):
+def dark_bg(
+    font,
+    header_sub="//   БАЗОВЫЙ НЕЙРО-ПРОТОКОЛ",
+    header_right="ПРЕФРОНТАЛЬНАЯ КОРА",
+    footer_left="SPECTRMIND // COGNITIVE LAB",
+    total_pages=6,
+):
     """Общий фон + колонтитулы для каждой страницы."""
     def on_page(canvas, doc):
         canvas.saveState()
@@ -217,17 +223,18 @@ def dark_bg(font):
             canvas.drawString(MX, PAGE_H - 10.5*mm, "SPECTRMIND")
             canvas.setFont(font, 7.5)
             canvas.setFillColor(TEXT_MUTED)
-            canvas.drawString(MX + 23*mm, PAGE_H - 10.5*mm,
-                              "//   БАЗОВЫЙ НЕЙРО-ПРОТОКОЛ")
-            canvas.drawRightString(PAGE_W - MX, PAGE_H - 10.5*mm,
-                                   "ПРЕФРОНТАЛЬНАЯ КОРА")
+            canvas.drawString(MX + 23*mm, PAGE_H - 10.5*mm, header_sub)
+            canvas.drawRightString(PAGE_W - MX, PAGE_H - 10.5*mm, header_right)
             # Нижний
             canvas.line(MX, 13*mm, PAGE_W - MX, 13*mm)
-            canvas.drawString(MX, 9*mm, "SPECTRMIND // COGNITIVE LAB")
+            canvas.drawString(MX, 9*mm, footer_left)
             canvas.setFont(font + "-Bold", 7.5)
             canvas.setFillColor(CYAN)
-            canvas.drawRightString(PAGE_W - MX, 9*mm,
-                                   f"PAGE 0{doc.page} // 06")
+            canvas.drawRightString(
+                PAGE_W - MX, 9*mm, f"ЛИСТ {doc.page:02d} // {total_pages:02d}"
+                if "ЛАБОРАТОРИЯ" in footer_left
+                else f"PAGE {doc.page:02d} // {total_pages:02d}",
+            )
         canvas.restoreState()
     return on_page
 
