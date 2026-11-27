@@ -238,12 +238,12 @@ class SpectrCarouselGenerator:
                 if self.theme_key != "cyan":
                     bg_img = ImageEnhance.Color(bg_img).enhance(0.45)
 
-                # Маска: сверху ~420px темный фон для 100% читаемости заголовка, снизу сияющая графика
+                # Маска: плавное затемнение верхней части (~56%) для 100% читаемости заголовка и подзаголовка
                 mask = Image.new("L", (self.WIDTH, self.HEIGHT), 255)
                 m_draw = ImageDraw.Draw(mask)
-                fade_h = int(self.HEIGHT * 0.42)
+                fade_h = int(self.HEIGHT * 0.56)
                 for y in range(fade_h):
-                    alpha = int(255 * ((y / fade_h) ** 2.2))
+                    alpha = int(255 * ((y / fade_h) ** 2.4))
                     m_draw.line([(0, y), (self.WIDTH, y)], fill=alpha)
 
                 base = Image.composite(bg_img, base, mask)
@@ -584,10 +584,66 @@ class SpectrCarouselGenerator:
     # --------------------------------------------------------------------------
     # РЕНДЕРИНГ ТИПОВЫХ СЛАЙДОВ (ОБЛОЖКА, КОНТЕНТ/ДОСЬЕ, ПРОТОКОЛ, CTA-ВОРОНКА)
     # --------------------------------------------------------------------------
+    def _apply_cover_scrim(self, img: Image.Image, text_bottom_y: int) -> Image.Image:
+        """Добавляет мягкую тёмную градиентную подложку под текст обложки и нижнюю строку."""
+        bg_r, bg_g, bg_b = self.palette["bg_base"]
+        scrim = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (0, 0, 0, 0))
+        s_draw = ImageDraw.Draw(scrim)
+
+        # Верхний градиент под заголовок и подзаголовок (гарантирует контраст даже на светлых волнах)
+        top_end = min(self.HEIGHT - 260, max(540, text_bottom_y + 90))
+        hold_y = max(260, int(text_bottom_y * 0.65))
+        for y in range(top_end):
+            if y <= hold_y:
+                alpha = 215
+            else:
+                ratio = (y - hold_y) / max(1, (top_end - hold_y))
+                alpha = int(215 * ((1.0 - ratio) ** 1.6))
+            s_draw.line([(0, y), (self.WIDTH, y)], fill=(bg_r, bg_g, bg_b, alpha))
+
+        # Нижний мягкий градиент под подпись и штрихкод
+        bot_start = self.HEIGHT - self.MARGIN_BOTTOM - 105
+        for y in range(bot_start, self.HEIGHT):
+            ratio = (y - bot_start) / max(1, (self.HEIGHT - bot_start))
+            alpha = int(205 * (ratio ** 1.3))
+            s_draw.line([(0, y), (self.WIDTH, y)], fill=(bg_r, bg_g, bg_b, alpha))
+
+        return Image.alpha_composite(img.convert("RGBA"), scrim).convert("RGB")
+
     def render_slide(self, slide: Dict, idx: int, total: int, meta: Dict) -> Image.Image:
         img = self._create_canvas(slide_idx=idx, bg_image_path=slide.get("bg_image"))
         draw = ImageDraw.Draw(img)
         p = self.palette
+
+        inner_x = self.MARGIN_X + 44
+        inner_w = self.WIDTH - 2 * (self.MARGIN_X + 44)
+        top_y = self.MARGIN_TOP + 98
+
+        slide_type = slide.get("type", "content")
+        badge = slide.get("badge", "").upper()
+        cover_top_y = top_y + (66 if badge else 0)
+
+        # Заранее подбираем кегль обложки и ставим подложку до отрисовки рамки
+        cover_tsize = slide.get("title_size")
+        cover_sub_h = 0
+        if slide_type == "cover":
+            cover_title = slide.get("title", "")
+            if cover_tsize is None:
+                cover_tsize = 46
+                for cand in (64, 58, 52, 48, 46):
+                    f_cand = self._font("primary", cand)
+                    if self._measure_rich_height(draw, cover_title, inner_w, f_cand, int(cand * 1.15)) <= 290:
+                        cover_tsize = cand
+                        break
+            f_ct = self._font("primary", cover_tsize)
+            ct_h = self._measure_rich_height(draw, cover_title, inner_w, f_ct, int(cover_tsize * 1.15))
+            if slide.get("subtitle"):
+                f_sub_m = self._font("secondary", 30)
+                cover_sub_h = self._measure_rich_height(draw, slide["subtitle"], inner_w, f_sub_m, 42)
+            text_bottom_y = cover_top_y + ct_h + 42 + cover_sub_h
+            if slide.get("bg_image") and p["is_dark"]:
+                img = self._apply_cover_scrim(img, text_bottom_y=text_bottom_y)
+                draw = ImageDraw.Draw(img)
 
         self._draw_chrome_frame(
             draw,
@@ -597,13 +653,6 @@ class SpectrCarouselGenerator:
             classification=meta.get("classification", "КЛИНИЧЕСКИЙ АРХИВ"),
         )
 
-        inner_x = self.MARGIN_X + 44
-        inner_w = self.WIDTH - 2 * (self.MARGIN_X + 44)
-        top_y = self.MARGIN_TOP + 98
-
-        slide_type = slide.get("type", "content")
-
-        badge = slide.get("badge", "").upper()
         if badge:
             f_badge = self._font("mono", 19)
             bw = int(draw.textlength(badge, font=f_badge)) + 32
@@ -613,7 +662,8 @@ class SpectrCarouselGenerator:
             top_y += bh + 28
 
         if slide_type == "cover":
-            f_title = self._font("primary", slide.get("title_size", 64))
+            tsize = cover_tsize or 64
+            f_title = self._font("primary", tsize)
             top_y = self._draw_rich_paragraph(
                 draw,
                 slide.get("title", ""),
@@ -621,7 +671,7 @@ class SpectrCarouselGenerator:
                 y=top_y,
                 max_width=inner_w,
                 font=f_title,
-                line_height=int(slide.get("title_size", 64) * 1.15),
+                line_height=int(tsize * 1.15),
                 default_color=p["text_main"],
                 accent_color=p["accent"],
                 highlight_box=not p["is_dark"],
@@ -634,6 +684,7 @@ class SpectrCarouselGenerator:
 
             if slide.get("subtitle"):
                 f_sub = self._font("secondary", 30)
+                sub_color = (224, 240, 250) if p["is_dark"] else p["text_muted"]
                 top_y = self._draw_rich_paragraph(
                     draw,
                     slide["subtitle"],
@@ -642,7 +693,7 @@ class SpectrCarouselGenerator:
                     max_width=inner_w,
                     font=f_sub,
                     line_height=42,
-                    default_color=p["text_muted"],
+                    default_color=sub_color,
                     accent_color=p["text_main"],
                 )
 
